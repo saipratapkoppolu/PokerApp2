@@ -110,7 +110,14 @@ export const SPLITWISE_URL = SPLITWISE_GROUP_ID
 // Cloudflare Worker in splitwise-worker/ (it keeps the app secret and forwards calls).
 // The browser only stores an encrypted session that is useless without the worker.
 
-const WORKER_URL = (import.meta.env.VITE_SPLITWISE_WORKER_URL ?? '').replace(/\/+$/, '');
+/** Worker address from .env; "https://" is added if it was left out (else taps just reload the app). */
+function workerUrl(raw: string): string {
+  const v = raw.trim().replace(/\/+$/, '');
+  if (!v || /^https?:\/\//i.test(v)) return v;
+  return `${/^(localhost|127\.0\.0\.1)(:|$)/.test(v) ? 'http' : 'https'}://${v}`;
+}
+
+const WORKER_URL = workerUrl(import.meta.env.VITE_SPLITWISE_WORKER_URL ?? '');
 export const splitwiseApiEnabled = WORKER_URL !== '';
 
 const SESSION_KEY = 'poker.splitwiseSession';
@@ -191,7 +198,12 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const body = await res.json().catch(() => null);
   if (res.status === 401) {
     clearSplitwiseSession();
-    throw new SplitwiseAuthError('Splitwise login expired — connect again.');
+    const why = (body as { error?: string } | null)?.error;
+    throw new SplitwiseAuthError(
+      why === 'Not connected to Splitwise'
+        ? 'Splitwise login was not kept (worker could not read it — check SESSION_SECRET). Connect again.'
+        : 'Splitwise did not accept the login — connect again.',
+    );
   }
   if (!res.ok || !body)
     throw new Error(`Splitwise: ${(body as { error?: string } | null)?.error ?? `HTTP ${res.status}`}`);

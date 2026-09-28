@@ -90,7 +90,8 @@ export default function SplitwiseCard({ title, rows, onMessage, canAdd, added, o
       .catch((e) => {
         if (!live) return;
         setMe(e instanceof SplitwiseAuthError ? '' : 'your Splitwise account');
-        if (!(e instanceof SplitwiseAuthError)) setError(e instanceof Error ? e.message : 'Could not reach Splitwise.');
+        // Always say why — otherwise a failed login just shows "Connect Splitwise" again.
+        setError(e instanceof Error ? e.message : 'Could not reach Splitwise.');
       });
     return () => {
       live = false;
