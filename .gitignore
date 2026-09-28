@@ -31,3 +31,7 @@ dist-ssr
 .bolt/
 firebase-debug.log
 database-debug.log
+
+# Cloudflare Worker local secrets
+.dev.vars
+.wrangler

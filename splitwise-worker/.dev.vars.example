@@ -1,0 +1,4 @@
+# Copy to .dev.vars (git-ignored) for `npx wrangler dev` on your computer.
+SPLITWISE_CLIENT_ID=
+SPLITWISE_CLIENT_SECRET=
+SESSION_SECRET=any-long-random-text

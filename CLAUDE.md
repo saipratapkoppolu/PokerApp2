@@ -87,13 +87,14 @@ Existing lint errors (`any` in auth handlers) predate this work.
 - **Splitwise** (`src/utils/splitwise.ts`, card on the results page): one expense settles the game —
   *Paid by multiple people* = Earned (prize + bounties won), *Split unequally* = Spent (buy-ins + bounties lost),
   so Splitwise balance = net. Shows a Spent/Earned/Net table, fewest "X → Y" settle-up transfers, and Copy / Share /
-  Open Splitwise. **Add to Splitwise** (admin) only under `npm run dev` with `SPLITWISE_API_KEY` in `.env`: the Vite
-  dev proxy `/splitwise-api` → `secure.splitwise.com/api/v3.0` adds the key (no `VITE_` prefix, never bundled;
-  `__SPLITWISE_PROXY__` flag). Pick group + map each player to a member (name guess, remembered in localStorage),
-  group + player IDs can be fixed in `src/config/splitwise.ts` (a group ID locks it to that one group and
-  "Open Splitwise" opens it; players: config → last pick → name match);
-  creates one EUR expense, stores `room.splitwise` so it isn't added twice. The live site has no proxy — a real
-  one needs a Cloud Function (Blaze plan); never put the key in a `VITE_` variable.
+  Open Splitwise. **Connect Splitwise / Add to Splitwise**: each admin logs in with their OWN Splitwise account
+  (OAuth) via the Cloudflare Worker in `splitwise-worker/` (holds the app secret, encrypts the user's token into an
+  opaque session kept in localStorage, forwards only get_current_user / get_groups / create_expense, CORS-limited to
+  `ALLOWED_ORIGINS`). App side needs `VITE_SPLITWISE_WORKER_URL` (public); login returns via `?sw_session=` which
+  `main.tsx` strips before the app reads `#room=`. Button only when the unlocked room admin is in `SPLITWISE_ADDERS`
+  (`src/config/splitwise.ts`, UI gate). Group + player IDs in the same config (group ID = only that group, and
+  "Open Splitwise" opens it; players: config → last pick → name match). Creates one EUR expense, stores
+  `room.splitwise` so it isn't added twice. No personal API key anywhere.
 - **Admin**: PIN per room in `roomPins/{id}` (NOT in the public room). Admin stays unlocked across refresh
   when `room.currentAdmin.uid === me`; locks if someone else takes admin.
 - **Spectators**: `rooms` is publicly readable; guests watch read-only without an account.

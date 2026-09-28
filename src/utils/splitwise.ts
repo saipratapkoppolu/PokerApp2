@@ -1,4 +1,4 @@
-import { SPLITWISE_GROUP_ID } from '../config/splitwise';
+import { SPLITWISE_ADDERS, SPLITWISE_GROUP_ID } from '../config/splitwise';
 import { fmt } from './format';
 
 /**
@@ -106,10 +106,75 @@ export const SPLITWISE_URL = SPLITWISE_GROUP_ID
   : 'https://secure.splitwise.com/#/dashboard';
 
 // ---------------------------------------------------------------------------
-// Direct "Add to Splitwise" — only under `npm run dev` with SPLITWISE_API_KEY
-// (the dev server proxies /splitwise-api and adds the key; see vite.config.ts).
+// "Connect Splitwise": each admin logs in with their own Splitwise account through the
+// Cloudflare Worker in splitwise-worker/ (it keeps the app secret and forwards calls).
+// The browser only stores an encrypted session that is useless without the worker.
 
-export const splitwiseApiEnabled = typeof __SPLITWISE_PROXY__ !== 'undefined' && __SPLITWISE_PROXY__;
+const WORKER_URL = (import.meta.env.VITE_SPLITWISE_WORKER_URL ?? '').replace(/\/+$/, '');
+export const splitwiseApiEnabled = WORKER_URL !== '';
+
+const SESSION_KEY = 'poker.splitwiseSession';
+
+export function getSplitwiseSession(): string {
+  try {
+    return localStorage.getItem(SESSION_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export function clearSplitwiseSession() {
+  try {
+    localStorage.removeItem(SESSION_KEY);
+  } catch {
+    // Storage blocked — nothing to clear.
+  }
+}
+
+/**
+ * After the Splitwise login the worker sends the browser back with ?sw_session=… (or ?sw_error=…).
+ * Store it and strip it from the address bar. Call once at startup. Returns the error, if any.
+ */
+let loginError = '';
+
+/** The error from the last Splitwise login redirect (read once). */
+export function takeSplitwiseLoginError(): string {
+  const e = loginError;
+  loginError = '';
+  return e;
+}
+
+export function takeSplitwiseLoginResult(): string {
+  const url = new URL(window.location.href);
+  const session = url.searchParams.get('sw_session');
+  const error = url.searchParams.get('sw_error') ?? '';
+  if (!session && !error) return '';
+  loginError = error;
+  if (session) {
+    try {
+      localStorage.setItem(SESSION_KEY, session);
+    } catch {
+      // Storage blocked — the user will have to connect again next time.
+    }
+  }
+  url.searchParams.delete('sw_session');
+  url.searchParams.delete('sw_error');
+  window.history.replaceState(null, '', url.toString());
+  return error;
+}
+
+/** Full-page redirect to Splitwise's login; comes back to this exact page (same room). */
+export function connectSplitwise() {
+  window.location.href = `${WORKER_URL}/login?return=${encodeURIComponent(window.location.href)}`;
+}
+
+export class SplitwiseAuthError extends Error {}
+
+const adderKeys = new Set(SPLITWISE_ADDERS.map((n) => n.trim().toLowerCase()));
+
+/** Whether this logged-in user may use "Add to Splitwise" (see src/config/splitwise.ts). */
+export const canAddToSplitwise = (displayName?: string | null) =>
+  !!displayName && adderKeys.has(displayName.trim().toLowerCase());
 
 export type SplitwiseMember = { id: number; name: string };
 export type SplitwiseGroup = { id: number; name: string; members: SplitwiseMember[] };
@@ -119,16 +184,27 @@ type ApiUser = { id: number; first_name?: string | null; last_name?: string | nu
 const memberName = (u: ApiUser) => [u.first_name, u.last_name].filter(Boolean).join(' ').trim() || `User ${u.id}`;
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/splitwise-api/${path}`, init);
+  const res = await fetch(`${WORKER_URL}/api/${path}`, {
+    ...init,
+    headers: { ...(init?.headers ?? {}), Authorization: `Bearer ${getSplitwiseSession()}` },
+  });
   const body = await res.json().catch(() => null);
-  if (!res.ok || !body) {
-    const reason = res.status === 401 ? 'API key was rejected' : `HTTP ${res.status}`;
-    throw new Error(`Splitwise: ${reason}`);
+  if (res.status === 401) {
+    clearSplitwiseSession();
+    throw new SplitwiseAuthError('Splitwise login expired — connect again.');
   }
+  if (!res.ok || !body)
+    throw new Error(`Splitwise: ${(body as { error?: string } | null)?.error ?? `HTTP ${res.status}`}`);
   return body as T;
 }
 
-/** The key owner's groups (without the built-in "Non-group expenses"). */
+/** The logged-in Splitwise user's name (shown as "Connected as …"). */
+export async function fetchSplitwiseMe(): Promise<string> {
+  const data = await api<{ user: ApiUser }>('get_current_user');
+  return memberName(data.user);
+}
+
+/** The connected user's groups (without the built-in "Non-group expenses"). */
 export async function fetchSplitwiseGroups(): Promise<SplitwiseGroup[]> {
   const data = await api<{ groups: { id: number; name: string; members: ApiUser[] }[] }>('get_groups');
   return data.groups
@@ -180,12 +256,16 @@ export async function createSplitwiseExpense(opts: {
     body[`users__${i}__paid_share`] = (s.paid / 100).toFixed(2);
     body[`users__${i}__owed_share`] = (s.owed / 100).toFixed(2);
   });
-  const data = await api<{ expenses?: { id: number }[]; errors?: Record<string, string[] | string> }>('create_expense', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  const data = await api<{ expenses?: { id: number }[]; errors?: Record<string, string[] | string> }>(
+    'create_expense',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  );
   const errors = Object.values(data.errors ?? {}).flat();
-  if (errors.length || !data.expenses?.[0]) throw new Error(`Splitwise: ${errors.join(', ') || 'expense was not created'}`);
+  if (errors.length || !data.expenses?.[0])
+    throw new Error(`Splitwise: ${errors.join(', ') || 'expense was not created'}`);
   return data.expenses[0].id;
 }

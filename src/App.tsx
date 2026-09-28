@@ -63,7 +63,7 @@ import { useToneIndex } from './hooks/useTones';
 import { toneSound, toneUidOf } from './utils/tones';
 import ThemePicker from './components/ThemePicker';
 import { MAX_PLACES, PAYOUT_SPLITS, defaultPlaces, splitPool } from './utils/payouts';
-import { splitwiseRows } from './utils/splitwise';
+import { canAddToSplitwise, splitwiseRows } from './utils/splitwise';
 import SplitwiseCard from './components/SplitwiseCard';
 import { useAlertsPreference, useTournamentClock } from './hooks/useTournamentClock';
 import { useLiveRooms } from './hooks/useLiveRooms';
@@ -2035,7 +2035,7 @@ async function closeBuyins() {
               title={room?.title ?? ''}
               rows={splitRows}
               onMessage={setAdminMessage}
-              canAdd={isAdminUnlocked}
+              canAdd={isAdminUnlocked && canAddToSplitwise(identity?.displayName)}
               added={room?.splitwise}
               onAdded={({ expenseId, groupName }) =>
                 patchRoom({

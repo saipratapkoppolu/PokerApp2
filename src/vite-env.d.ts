@@ -1,4 +1,6 @@
 /// <reference types="vite/client" />
 
-/** True only under `npm run dev` with SPLITWISE_API_KEY set in .env (see vite.config.ts). */
-declare const __SPLITWISE_PROXY__: boolean;
+interface ImportMetaEnv {
+  /** Cloudflare Worker for "Connect Splitwise" (splitwise-worker/). Public URL, not a secret. */
+  readonly VITE_SPLITWISE_WORKER_URL?: string;
+}

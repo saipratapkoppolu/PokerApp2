@@ -1,0 +1,15 @@
+# Cloudflare Worker for "Connect Splitwise" (see README.md in this folder).
+name = "poker-splitwise"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[vars]
+# Sites allowed to use this worker. `*` matches any text (Firebase preview channels).
+ALLOWED_ORIGINS = "https://poker-tracker-2ab9c.web.app,https://poker-tracker-2ab9c.firebaseapp.com,https://poker-tracker-2ab9c--*.web.app,http://localhost:5173"
+# Optional: only allow expenses in this Splitwise group ("" = any of the user's groups).
+GROUP_ID = "66133405"
+
+# Secrets (never in this file) — set once with:
+#   npx wrangler secret put SPLITWISE_CLIENT_ID
+#   npx wrangler secret put SPLITWISE_CLIENT_SECRET
+#   npx wrangler secret put SESSION_SECRET

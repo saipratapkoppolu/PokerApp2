@@ -2721,3 +2721,15 @@ button.standing-row:active {
   border: 1px solid var(--border);
   font-weight: 700;
 }
+
+.splitwise-me {
+  margin-top: 6px;
+  text-align: center;
+}
+
+.splitwise-me .link-btn {
+  padding: 0;
+  color: var(--green);
+  text-decoration: underline;
+  font-size: inherit;
+}
