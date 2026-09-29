@@ -22,4 +22,4 @@ export const SPLITWISE_PLAYER_IDS: Record<string, number> = {};
  * "Add to Splitwise" shows only when the room admin is one of these users (app display name, any case).
  * Empty = nobody. Everyone still sees the table and Copy / Share.
  */
-export const SPLITWISE_ADDERS: string[] = ['Adi', 'Bharath', 'Naresh', 'Sai', 'BhuvR', 'Ram', 'Reddy'];
+export const SPLITWISE_ADDERS: string[] = ['Adi', 'Bharath', 'Naresh', 'Sai', 'BhuvR', 'Ram', 'Reddy', 'Krishna', 'Rohith', 'Kris'];
