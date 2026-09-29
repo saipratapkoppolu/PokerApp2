@@ -1,4 +1,4 @@
-import { SPLITWISE_ADDERS, SPLITWISE_GROUP_ID } from '../config/splitwise';
+import { SPLITWISE_GROUP_ID } from '../config/splitwise';
 import { fmt } from './format';
 
 /**
@@ -176,12 +176,6 @@ export function connectSplitwise() {
 }
 
 export class SplitwiseAuthError extends Error {}
-
-const adderKeys = new Set(SPLITWISE_ADDERS.map((n) => n.trim().toLowerCase()));
-
-/** Whether this logged-in user may use "Add to Splitwise" (see src/config/splitwise.ts). */
-export const canAddToSplitwise = (displayName?: string | null) =>
-  !!displayName && adderKeys.has(displayName.trim().toLowerCase());
 
 export type SplitwiseMember = { id: number; name: string };
 export type SplitwiseGroup = { id: number; name: string; members: SplitwiseMember[] };

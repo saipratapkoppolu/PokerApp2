@@ -25,7 +25,7 @@ type Props = {
   title: string;
   rows: SplitwiseRow[];
   onMessage: (message: string) => void;
-  /** Unlocked room admin AND in SPLITWISE_ADDERS (src/config/splitwise.ts). */
+  /** Unlocked room admin. */
   canAdd?: boolean;
   added?: Added;
   onAdded?: (info: { expenseId: number; groupName: string }) => void | Promise<void>;
