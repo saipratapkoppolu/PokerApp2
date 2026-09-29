@@ -68,6 +68,8 @@ export default function SplitwiseCard({ title, rows, onMessage, canAdd, added, o
   const [error, setError] = useState('');
   // Splitwise account this device is connected to: '' = not connected, null = checking.
   const [me, setMe] = useState<string | null>(null);
+  // Whether that account is in the configured Splitwise group: null = unknown (not checked / no group set).
+  const [inGroup, setInGroup] = useState<boolean | null>(null);
   const group = groups?.find((g) => g.id === groupId);
   const showAdd = splitwiseApiEnabled && canAdd && !added;
 
@@ -86,7 +88,15 @@ export default function SplitwiseCard({ title, rows, onMessage, canAdd, added, o
     }
     let live = true;
     fetchSplitwiseMe()
-      .then((name) => live && setMe(name))
+      .then(async (name) => {
+        // Only members of the configured group can add the expense: check now, so others never see the button.
+        const member = SPLITWISE_GROUP_ID
+          ? (await fetchSplitwiseGroups()).some((g) => g.id === SPLITWISE_GROUP_ID)
+          : null;
+        if (!live) return;
+        setInGroup(member);
+        setMe(name);
+      })
       .catch((e) => {
         if (!live) return;
         setMe(e instanceof SplitwiseAuthError ? '' : 'your Splitwise account');
@@ -101,6 +111,7 @@ export default function SplitwiseCard({ title, rows, onMessage, canAdd, added, o
   function fail(e: unknown, fallback: string) {
     if (e instanceof SplitwiseAuthError) {
       setMe('');
+      setInGroup(null);
       setGroups(null);
     }
     setError(e instanceof Error ? e.message : fallback);
@@ -109,6 +120,7 @@ export default function SplitwiseCard({ title, rows, onMessage, canAdd, added, o
   function disconnect() {
     clearSplitwiseSession();
     setMe('');
+    setInGroup(null);
     setGroups(null);
     setError('');
   }
@@ -140,7 +152,7 @@ export default function SplitwiseCard({ title, rows, onMessage, canAdd, added, o
       if (!list.length) {
         setError(
           SPLITWISE_GROUP_ID
-            ? `Your Splitwise account isn't in group ${SPLITWISE_GROUP_ID} (src/config/splitwise.ts).`
+            ? "Your Splitwise account isn't in the poker Splitwise group."
             : 'No Splitwise groups found in your account.',
         );
         return;
@@ -202,6 +214,16 @@ export default function SplitwiseCard({ title, rows, onMessage, canAdd, added, o
         <button className="btn btn-green btn-block splitwise-add-btn" onClick={connectSplitwise}>
           Connect Splitwise
         </button>
+      );
+    }
+    if (inGroup === false) {
+      return (
+        <div className="tiny muted splitwise-me">
+          Connected as {me} — not in the poker Splitwise group, so you can't add this expense ·{' '}
+          <button className="link-btn" onClick={disconnect}>
+            Disconnect
+          </button>
+        </div>
       );
     }
     if (!groups) {

@@ -91,7 +91,8 @@ Existing lint errors (`any` in auth handlers) predate this work.
   (OAuth) via the Cloudflare Worker in `splitwise-worker/` (holds the app secret, encrypts the user's token into an
   opaque session kept in localStorage, forwards only get_current_user / get_groups / create_expense, CORS-limited to
   `ALLOWED_ORIGINS`). App side needs `VITE_SPLITWISE_WORKER_URL` (public); login returns via `?sw_session=` which
-  `main.tsx` strips before the app reads `#room=`. Button for any unlocked room admin.
+  `main.tsx` strips before the app reads `#room=`. Button for any unlocked room admin;
+  after they connect, it's hidden unless their Splitwise account is in the configured group.
   Group + player IDs in `src/config/splitwise.ts` (group ID = only that group, and
   "Open Splitwise" opens it; players: config → last pick → name match). Creates one EUR expense, stores
   `room.splitwise` so it isn't added twice. No personal API key anywhere.
