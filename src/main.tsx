@@ -5,10 +5,13 @@ import App from './App';
 import './index.css';
 import { applyTheme, getTheme } from './utils/theme';
 import { takeSplitwiseLoginResult } from './utils/splitwise';
+import { startOldGameSweep } from './utils/sweep';
 
 applyTheme(getTheme());
 // Back from "Connect Splitwise": keep the session, clean the address bar before the app reads it.
 takeSplitwiseLoginResult();
+// Delete games idle for 30+ days (logged-in users, at most once a day per device).
+startOldGameSweep();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -58,7 +58,6 @@ import TournamentClock from './components/TournamentClock';
 import BlindStructureEditor from './components/BlindStructureEditor';
 import NumberField from './components/NumberField';
 import MinutesPicker from './components/MinutesPicker';
-import { sweepOldGames } from './utils/sweep';
 import ToneUploader from './components/ToneUploader';
 import { useToneIndex } from './hooks/useTones';
 import { toneSound, toneUidOf } from './utils/tones';
@@ -295,13 +294,6 @@ export default function App() {
       setPage('home');
     }
   }, [identity]);
-
-  // Housekeeping: delete games idle for 30+ days (at most once a day per device).
-  useEffect(() => {
-    if (!identity) return;
-    sweepOldGames(readHashRoom() || roomId).catch((error) => console.warn('old game sweep failed', error));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [identity?.uid]);
 
   useEffect(() => {
     if (!roomId) return;

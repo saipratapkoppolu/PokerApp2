@@ -1,5 +1,6 @@
+import { onAuthStateChanged } from 'firebase/auth';
 import { get, ref, update } from 'firebase/database';
-import { db } from '../firebase';
+import { auth, db } from '../firebase';
 import type { HistoryItem, RoomState } from '../types/app';
 import { lastActivity } from './room';
 
@@ -61,4 +62,13 @@ export async function sweepOldGames(keepRoomId?: string): Promise<string[]> {
 
   if (Object.keys(removals).length > 0) await update(ref(db), removals);
   return swept;
+}
+
+/** Run the sweep whenever a logged-in (non-guest) user is signed in. The room in the address bar is kept. */
+export function startOldGameSweep() {
+  onAuthStateChanged(auth, (user) => {
+    if (!user || user.isAnonymous) return;
+    const openRoom = window.location.hash.replace('#room=', '').trim().toUpperCase();
+    sweepOldGames(openRoom || undefined).catch((error) => console.warn('old game sweep failed', error));
+  });
 }
