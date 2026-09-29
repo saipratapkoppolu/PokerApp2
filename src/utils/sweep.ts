@@ -1,14 +1,23 @@
 import { onAuthStateChanged } from 'firebase/auth';
 import { get, ref, update } from 'firebase/database';
 import { auth, db } from '../firebase';
-import type { HistoryItem, RoomState } from '../types/app';
-import { lastActivity } from './room';
+import type { HistoryItem, RoomEvent, RoomState } from '../types/app';
 
 // Games with no activity for this long are deleted: room, admin PIN and history entry.
 export const SWEEP_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
 // Each device sweeps at most once a day.
 const SWEEP_EVERY_MS = 24 * 60 * 60 * 1000;
 const LAST_SWEEP_KEY = 'poker.lastSweep';
+
+// Opening a game from History logs "user joined"; that is viewing, not playing, so it doesn't keep a game alive.
+function lastPlayed(room: RoomState) {
+  const events: RoomEvent[] = Array.isArray(room.events) ? room.events : Object.values(room.events ?? {});
+  const newestEvent = events.reduce(
+    (max, e) => (e && e.type !== 'user_joined' ? Math.max(max, e.createdAt ?? 0) : max),
+    0
+  );
+  return Math.max(newestEvent, room.clock?.startedAt ?? 0, room.createdAt ?? 0);
+}
 
 function readLastSweep() {
   try {
@@ -45,7 +54,7 @@ export async function sweepOldGames(keepRoomId?: string): Promise<string[]> {
 
   for (const [id, room] of Object.entries(rooms)) {
     if (!room || id === keepRoomId) continue;
-    const last = lastActivity(room);
+    const last = lastPlayed(room);
     // No timestamps at all: can't tell its age, leave it alone.
     if (!last || last >= cutoff) continue;
     removals[`rooms/${id}`] = null;

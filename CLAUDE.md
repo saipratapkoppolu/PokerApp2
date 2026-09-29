@@ -99,7 +99,7 @@ Existing lint errors (`any` in auth handlers) predate this work.
   when `room.currentAdmin.uid === me`; locks if someone else takes admin.
 - **Spectators**: `rooms` is publicly readable; guests watch read-only without an account.
 - **Old-game sweep** (`src/utils/sweep.ts`, started in `main.tsx`): when a logged-in user opens the app (at most once a day per device,
-  localStorage `poker.lastSweep`), every room with no activity for 30 days (`lastActivity`: newest event / clock
+  localStorage `poker.lastSweep`), every room with no activity for 30 days (newest event except "user joined" / clock
   start / creation) is deleted with its `roomPins/{id}` and `history/{id}` in one multi-path update. Also removes
   history rows older than 30 days whose room is gone. Never deletes the room open on that device or rooms with no
   timestamps. No confirmation — deletions are permanent.
