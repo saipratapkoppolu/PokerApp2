@@ -10,6 +10,13 @@ import { DEFAULT_LATE_REG_LEVEL, houseLevels, initialClock, preferredMinutes } f
 
 export const SUITS = ['♠', '♥', '♦', '♣'];
 export const MAX_PLAYERS = 12;
+
+/** Newest timestamp seen on a room (events, clock, creation); 0 if it has none. */
+export function lastActivity(room: RoomState) {
+  const events: RoomEvent[] = Array.isArray(room.events) ? room.events : Object.values(room.events ?? {});
+  const newestEvent = events.reduce((max, e) => Math.max(max, e?.createdAt ?? 0), 0);
+  return Math.max(newestEvent, room.clock?.startedAt ?? 0, room.createdAt ?? 0);
+}
 export const FINISH_ALLOWED_AT = 5;
 
 export function makeId() {

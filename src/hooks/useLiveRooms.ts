@@ -2,17 +2,12 @@ import { useEffect, useState } from 'react';
 import { equalTo, onValue, orderByChild, query, ref } from 'firebase/database';
 import { signInAnonymously } from 'firebase/auth';
 import { auth, db } from '../firebase';
-import type { LiveRoomSummary, Player, RoomEvent, RoomState } from '../types/app';
+import type { LiveRoomSummary, Player, RoomState } from '../types/app';
 import { normalizeLevels } from '../utils/blinds';
+import { lastActivity } from '../utils/room';
 
 // Games with no activity for this long are treated as abandoned (never finished).
 const STALE_AFTER_MS = 12 * 60 * 60 * 1000;
-
-function lastActivity(room: RoomState) {
-  const events: RoomEvent[] = Array.isArray(room.events) ? room.events : Object.values(room.events ?? {});
-  const newestEvent = events.reduce((max, e) => Math.max(max, e?.createdAt ?? 0), 0);
-  return Math.max(newestEvent, room.clock?.startedAt ?? 0, room.createdAt ?? 0);
-}
 
 function summarize(room: RoomState): LiveRoomSummary {
   const players: Player[] = Array.isArray(room.players) ? room.players : Object.values(room.players ?? {});
