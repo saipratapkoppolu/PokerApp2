@@ -27,8 +27,6 @@ export type SplitwiseRow = {
   bounty: number;
 };
 
-export type Transfer = { from: string; to: string; amount: number };
-
 const cents = (n: number) => Math.round(n * 100);
 
 export function splitwiseRows(
@@ -59,26 +57,6 @@ export function splitwiseRows(
     pot: r.potC / 100,
     bounty: r.bountyC / 100,
   }));
-}
-
-/** Fewest "X pays Y" transfers that settle every net. */
-export function settleUp(rows: SplitwiseRow[]): Transfer[] {
-  const debtors = rows.filter((r) => r.net < 0).map((r) => ({ name: r.name, c: -cents(r.net) }));
-  const creditors = rows.filter((r) => r.net > 0).map((r) => ({ name: r.name, c: cents(r.net) }));
-  debtors.sort((a, b) => b.c - a.c);
-  creditors.sort((a, b) => b.c - a.c);
-  const out: Transfer[] = [];
-  let i = 0;
-  let j = 0;
-  while (i < debtors.length && j < creditors.length) {
-    const amount = Math.min(debtors[i].c, creditors[j].c);
-    if (amount > 0) out.push({ from: debtors[i].name, to: creditors[j].name, amount: amount / 100 });
-    debtors[i].c -= amount;
-    creditors[j].c -= amount;
-    if (debtors[i].c === 0) i++;
-    if (creditors[j].c === 0) j++;
-  }
-  return out;
 }
 
 const money = (n: number) => `€${fmt(Math.round(n * 100) / 100)}`;

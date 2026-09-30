@@ -12,7 +12,6 @@ import {
   getSplitwiseSession,
   takeSplitwiseLoginError,
   guessMember,
-  settleUp,
   splitwiseApiEnabled,
   splitwiseText,
   type SplitwiseGroup,
@@ -60,7 +59,6 @@ const configIds: Record<string, number> = Object.fromEntries(
 
 /** Results-page card: spent / earned / net per player, settle-up list, copy/share for Splitwise. */
 export default function SplitwiseCard({ title, rows, onMessage, canAdd, added, onAdded }: Props) {
-  const transfers = settleUp(rows);
   const [groups, setGroups] = useState<SplitwiseGroup[] | null>(null);
   const [groupId, setGroupId] = useState<number>(0);
   const [memberFor, setMemberFor] = useState<Record<string, number>>({});
@@ -313,16 +311,6 @@ export default function SplitwiseCard({ title, rows, onMessage, canAdd, added, o
           </div>
         ))}
       </div>
-      {transfers.length > 0 && (
-        <div className="splitwise-transfers">
-          <div className="tiny muted">Settle up</div>
-          {transfers.map((t, i) => (
-            <div className="tiny" key={i}>
-              {t.from} → {t.to} <strong>€{fmt(t.amount)}</strong>
-            </div>
-          ))}
-        </div>
-      )}
       {added ? (
         <div className="note-box splitwise-added">
           ✓ Added to Splitwise ({added.groupName}) by {added.addedBy}
