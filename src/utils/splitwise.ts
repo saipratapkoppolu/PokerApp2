@@ -21,6 +21,10 @@ export type SplitwiseRow = {
   spent: number;
   earned: number;
   net: number;
+  /** Prize − buy-ins. */
+  pot: number;
+  /** Bounties won − bounties lost. */
+  bounty: number;
 };
 
 export type Transfer = { from: string; to: string; amount: number };
@@ -36,7 +40,8 @@ export function splitwiseRows(
     const bounty = p.bountyBalance || 0;
     const spentC = cents(p.buyins * buyIn + Math.max(0, -bounty));
     const earnedC = cents(prizeFor(p.id) + Math.max(0, bounty));
-    return { id: p.id, name: p.name, spentC, earnedC };
+    const potC = cents(prizeFor(p.id) - p.buyins * buyIn);
+    return { id: p.id, name: p.name, spentC, earnedC, potC, bountyC: cents(bounty) };
   });
   // Split bounties (e.g. thirds) can leave a cent of rounding; give it to the biggest earner
   // so both columns match to the cent, as Splitwise requires.
@@ -51,6 +56,8 @@ export function splitwiseRows(
     spent: r.spentC / 100,
     earned: r.earnedC / 100,
     net: (r.earnedC - r.spentC) / 100,
+    pot: r.potC / 100,
+    bounty: r.bountyC / 100,
   }));
 }
 
@@ -90,13 +97,9 @@ export function splitwiseText(title: string, date: Date, rows: SplitwiseRow[]): 
     'Split unequally (spent):',
     ...rows.map((r) => `  ${r.name}: ${money(r.spent)}`),
     '',
-    'Net:',
-    ...rows.map((r) => `  ${r.name}: ${signed(r.net)}`),
+    'Net (pot + bounty):',
+    ...rows.map((r) => `  ${r.name}: pot ${signed(r.pot)} · bounty ${signed(r.bounty)} · net ${signed(r.net)}`),
   ];
-  const transfers = settleUp(rows);
-  if (transfers.length) {
-    lines.push('', 'Settle up:', ...transfers.map((t) => `  ${t.from} → ${t.to}: ${money(t.amount)}`));
-  }
   return lines.join('\n');
 }
 
