@@ -69,12 +69,6 @@ export function splitwiseText(title: string, date: Date, rows: SplitwiseRow[]): 
     `🃏 Poker: ${title} (${date.toLocaleDateString()})`,
     `Total ${money(total)}`,
     '',
-    'Paid by (earned):',
-    ...rows.filter((r) => r.earned > 0).map((r) => `  ${r.name}: ${money(r.earned)}`),
-    '',
-    'Split unequally (spent):',
-    ...rows.map((r) => `  ${r.name}: ${money(r.spent)}`),
-    '',
     'Net (pot + bounty):',
     ...rows.map((r) => `  ${r.name}: pot ${signed(r.pot)} · bounty ${signed(r.bounty)} · net ${signed(r.net)}`),
   ];
