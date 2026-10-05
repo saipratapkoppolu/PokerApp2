@@ -148,6 +148,8 @@ export type RoomState = {
   fourthPlayerId?: string;
   fifthPlayerId?: string;
   sixthPlayerId?: string;
+  /** Player ids in final finishing order, saved when the game is finished. */
+  finalOrder?: string[];
 };
   /** Set once the results were added to Splitwise, so nobody adds them twice. */
   splitwise?: { expenseId: number; groupName: string; addedBy: string; addedAt: number };
