@@ -252,15 +252,27 @@ export default function App() {
   return () => unsubAuth();
 }, []);
 
+  // History is readable only when logged in. Subscribe once the login is restored: a read sent
+  // before that is denied and Firebase cancels the listener for good, leaving history empty.
   useEffect(() => {
-    const unsubscribe = onValue(ref(db, 'history'), (snapshot) => {
-      const value = snapshot.val() ?? {};
-      const items = Object.values(value) as HistoryItem[];
-      items.sort((a, b) => b.completedAt - a.completedAt);
-      setHistory(items);
-    });
+    if (!identity) {
+      setHistory([]);
+      return;
+    }
+    const unsubscribe = onValue(
+      ref(db, 'history'),
+      (snapshot) => {
+        const value = snapshot.val() ?? {};
+        const items = Object.values(value) as HistoryItem[];
+        items.sort((a, b) => b.completedAt - a.completedAt);
+        setHistory(items);
+      },
+      (error) => {
+        console.error('history read failed', error);
+      }
+    );
     return () => unsubscribe();
-  }, []);
+  }, [identity]);
 
   useEffect(() => {
   if (!identity) return;
