@@ -129,6 +129,8 @@ export function createEvent(
   actor: UserIdentity,
   meta?: Record<string, unknown>
 ): RoomEvent {
+  // Firebase rejects undefined values (e.g. no previous admin after a release), so drop them.
+  if (meta) meta = Object.fromEntries(Object.entries(meta).filter(([, value]) => value !== undefined));
   return {
     id: makeId(),
     type,
