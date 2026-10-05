@@ -423,28 +423,50 @@ export default function App() {
   const activePlayers = useMemo(() => players.filter((p) => p.active), [players]);
   const prizePool = useMemo(() => players.reduce((sum, p) => sum + p.buyins * buyIn, 0), [players, buyIn]);
   const totalBountyPot = useMemo(() => players.filter((p) => p.bountyBalance > 0).reduce((sum, p) => sum + p.bountyBalance, 0),[players]); 
-  const sortedForEnd = [...players].sort((a, b) => Number(b.active) - Number(a.active) || b.bountyBalance - a.bountyBalance);
-  const selectedFinisherIds = [
-  payouts.firstPlayerId,
-  payouts.secondPlayerId,
-  payouts.thirdPlayerId,
-  payouts.fourthPlayerId,
-  payouts.fifthPlayerId,
-  payouts.sixthPlayerId,
-].filter(Boolean) as string[];
+  // When each player last busted (events are newest first): a later bust = a better finish.
+  const lastBustAt = useMemo(() => {
+    const at: Record<string, number> = {};
+    for (const event of events) {
+      if (event.type !== 'knockout_recorded') continue;
+      const meta = (event.meta ?? {}) as { eliminatedIds?: string[]; eliminatedNames?: string };
+      // Older events only carry names.
+      const ids = meta.eliminatedIds ?? players.filter((p) => (meta.eliminatedNames ?? '').split(', ').includes(p.name)).map((p) => p.id);
+      ids.forEach((id) => {
+        if (at[id] === undefined) at[id] = event.createdAt;
+      });
+    }
+    return at;
+  }, [events, players]);
+  // Unplaced players: still in first, then the most recently busted, then bounty.
+  const sortedForEnd = [...players].sort(
+    (a, b) =>
+      Number(b.active) - Number(a.active) ||
+      (lastBustAt[b.id] ?? 0) - (lastBustAt[a.id] ?? 0) ||
+      b.bountyBalance - a.bountyBalance
+  );
 
-const selectedFinishers = selectedFinisherIds
-  .map((id) => players.find((p) => p.id === id))
-  .filter(Boolean) as Player[];
+  /** Standings with each picked finisher in their own place; empty places are filled from the rest. */
+  function standingsFor(picked: (string | undefined)[]) {
+    const slots = picked.map((id) => players.find((p) => p.id === id));
+    const rest = sortedForEnd.filter((p) => !slots.some((s) => s?.id === p.id));
+    const result: Player[] = [];
+    slots.forEach((s) => {
+      const next = s ?? rest.shift();
+      if (next) result.push(next);
+    });
+    return [...result, ...rest];
+  }
 
-const remainingPlayers = sortedForEnd.filter(
-  (p) => !selectedFinisherIds.includes(p.id)
-);
-
-const finalStandings =
-  selectedFinishers.length > 0
-    ? [...selectedFinishers, ...remainingPlayers]
-    : sortedForEnd;
+  const finalStandings = standingsFor([
+    payouts.firstPlayerId,
+    payouts.secondPlayerId,
+    payouts.thirdPlayerId,
+    payouts.fourthPlayerId,
+    payouts.fifthPlayerId,
+    payouts.sixthPlayerId,
+  ].slice(0, payoutMode));
+  // Every paid place needs a player before the game can finish.
+  const missingFinisher = PAYOUT_KEYS.slice(0, Math.min(payoutMode, players.length)).some((key) => !finishers[key]);
   const distributed = PAYOUT_KEYS.slice(0, payoutMode).reduce((sum, key) => sum + (Number(payouts[key]) || 0), 0);
   const remaining = prizePool - distributed;
 
@@ -889,6 +911,7 @@ const finalStandings =
         details,
         bountyText,
         eliminatedNames: eliminatedPlayers.map((p) => p.name).join(', '),
+        eliminatedIds: selectedEliminatedIds,
         winnerNames: Object.keys(gains).map(nameOf).join(', '),
         winningHand,
         rebuys,
@@ -1062,8 +1085,8 @@ async function closeBuyins() {
   }
 
   async function finishTournament() {
-    if (!isAdminUnlocked || !room || !identity || remaining !== 0) return;
-    const winner = sortedForEnd[0]?.name ?? 'Unknown';
+    if (!isAdminUnlocked || !room || !identity || remaining !== 0 || missingFinisher) return;
+    const winner = players.find((p) => p.id === finishers.first)?.name ?? 'Unknown';
     const event = createEvent('tournament_finished', identity, { winner });
     const historyItem: HistoryItem = {
       roomId: room.roomId,
@@ -2558,11 +2581,12 @@ async function closeBuyins() {
               <span>Remaining to assign</span>
               <strong className={remaining === 0 ? 'green' : remaining < 0 ? 'red' : 'gold'}>€{fmt(remaining)}</strong>
             </div>
+            {missingFinisher && <div className="tiny muted">Pick a player for every paid place to finish.</div>}
             <div className="modal-actions">
               <button className="btn btn-dark" onClick={() => setShowPayoutModal(false)}>
                 Close
               </button>
-              <button className="btn btn-green" disabled={remaining !== 0} onClick={finishTournament}>
+              <button className="btn btn-green" disabled={remaining !== 0 || missingFinisher} onClick={finishTournament}>
                 Finish
               </button>
             </div>
