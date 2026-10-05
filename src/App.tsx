@@ -449,20 +449,9 @@ export default function App() {
     }
     return at;
   }, [events, players]);
-  // Players tie when both are still in, or busted in the same knockout (or both have no bust record).
-  const tieKey = (p: Player) => (p.active ? 'in' : `out:${lastBustAt[p.id] ?? 0}`);
-  // Tie-break picked by the admin at finish: player ids tapped in chip order, most chips first.
-  const [chipOrder, setChipOrder] = useState<string[]>([]);
-  const chipRank = (id: string) => {
-    const i = chipOrder.indexOf(id);
-    return i === -1 ? chipOrder.length : i;
-  };
-  // Unplaced players: still in first, then the most recently busted, then who had more chips. Never bounty.
+  // Unplaced players: still in first, then the most recently busted. Never bounty; ties keep player order.
   const sortedForEnd = [...players].sort(
-    (a, b) =>
-      Number(b.active) - Number(a.active) ||
-      (lastBustAt[b.id] ?? 0) - (lastBustAt[a.id] ?? 0) ||
-      chipRank(a.id) - chipRank(b.id)
+    (a, b) => Number(b.active) - Number(a.active) || (lastBustAt[b.id] ?? 0) - (lastBustAt[a.id] ?? 0)
   );
 
   /** Standings with each picked finisher in their own place; empty places are filled from the rest. */
@@ -495,18 +484,6 @@ export default function App() {
           ].slice(0, payoutMode)
         );
 
-  // Finish screen: unplaced players who are tied, so the admin says who had more chips.
-  const pickedIds = PAYOUT_KEYS.slice(0, payoutMode).map((key) => finishers[key]).filter(Boolean);
-  const tieGroups = Object.values(
-    players
-      .filter((p) => !pickedIds.includes(p.id))
-      .reduce<Record<string, Player[]>>((groups, p) => {
-        (groups[tieKey(p)] ??= []).push(p);
-        return groups;
-      }, {})
-  ).filter((group) => group.length > 1);
-  // A tie is settled once all but one of its players were tapped.
-  const unsettledTie = tieGroups.some((group) => group.filter((p) => chipOrder.includes(p.id)).length < group.length - 1);
   // Every paid place needs a player before the game can finish.
   const missingFinisher = PAYOUT_KEYS.slice(0, Math.min(payoutMode, players.length)).some((key) => !finishers[key]);
   const distributed = PAYOUT_KEYS.slice(0, payoutMode).reduce((sum, key) => sum + (Number(payouts[key]) || 0), 0);
@@ -1127,7 +1104,7 @@ async function closeBuyins() {
   }
 
   async function finishTournament() {
-    if (!isAdminUnlocked || !room || !identity || remaining !== 0 || missingFinisher || unsettledTie) return;
+    if (!isAdminUnlocked || !room || !identity || remaining !== 0 || missingFinisher) return;
     const winner = players.find((p) => p.id === finishers.first)?.name ?? 'Unknown';
     const event = createEvent('tournament_finished', identity, { winner });
     const historyItem: HistoryItem = {
@@ -2619,44 +2596,17 @@ async function closeBuyins() {
                   </div>
                 </div>
               ))}
-              {tieGroups.map((group) => (
-                <div className="payout-card" key={tieKey(group[0])}>
-                  <div className="payout-place">
-                    <span>{group[0].active ? 'Still in' : 'Out in the same hand'} — who had more chips?</span>
-                  </div>
-                  <div className="tiny muted">Tap most chips first. Tap again to undo.</div>
-                  <div className="chip-grid">
-                    {[...group]
-                      .sort((a, b) => chipRank(a.id) - chipRank(b.id))
-                      .map((p) => {
-                        const rank = group.filter((g) => chipOrder.includes(g.id)).sort((a, b) => chipRank(a.id) - chipRank(b.id)).indexOf(p);
-                        return (
-                          <button
-                            key={p.id}
-                            type="button"
-                            className={`select-chip ${rank !== -1 ? 'selected' : ''}`}
-                            onClick={() => setChipOrder((prev) => (prev.includes(p.id) ? prev.filter((id) => id !== p.id) : [...prev, p.id]))}
-                          >
-                            {rank !== -1 ? `${rank + 1}. ` : ''}
-                            {p.name}
-                          </button>
-                        );
-                      })}
-                  </div>
-                </div>
-              ))}
             </div>
             <div className="remaining-box">
               <span>Remaining to assign</span>
               <strong className={remaining === 0 ? 'green' : remaining < 0 ? 'red' : 'gold'}>€{fmt(remaining)}</strong>
             </div>
             {missingFinisher && <div className="tiny muted">Pick a player for every paid place to finish.</div>}
-            {!missingFinisher && unsettledTie && <div className="tiny muted">Tap who had more chips for each tie to finish.</div>}
             <div className="modal-actions">
               <button className="btn btn-dark" onClick={() => setShowPayoutModal(false)}>
                 Close
               </button>
-              <button className="btn btn-green" disabled={remaining !== 0 || missingFinisher || unsettledTie} onClick={finishTournament}>
+              <button className="btn btn-green" disabled={remaining !== 0 || missingFinisher} onClick={finishTournament}>
                 Finish
               </button>
             </div>
