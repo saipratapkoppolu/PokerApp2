@@ -65,6 +65,8 @@ Existing lint errors (`any` in auth handlers) predate this work.
 - **Payouts** (`src/utils/payouts.ts`): defaults only, never locked. Players ≤5 → 2 places 60/40, 6–9 → 3 places
   50/30/20, 10+ → 4 places 40/30/20/10. Pre-filled as whole-euro **amounts** (leftover to 1st) when the finish
   modal first opens; admin edits any amount, adds/removes places (1–6), or resets to the default split.
+  Finishing positions are asked fresh every time the Finish dialog opens (picks are never remembered
+  between opens or games); Finish stays disabled until every paid place has a player from this game.
 - **Results**: pot net (prize − buy-ins) and bounty net shown **separately**, plus total. Never merge them.
 - **Blinds-up sequence** (alerts on): spoken 5-4-3-2-1 → "Time is up! Time is up! Blinds are now X, Y." →
   song `public/sounds/blinds-up.mp3` ("Blinds Rise" by gsrk_au, 19.9 s, trimmed + loudness-normalised from the

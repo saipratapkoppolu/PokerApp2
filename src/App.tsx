@@ -189,14 +189,8 @@ export default function App() {
   const [showPayoutModal, setShowPayoutModal] = useState(false);
   const [undoStack, setUndoStack] = useState<UndoState[]>([]);
 
-  const [finishers, setFinishers] = useState<Record<PayoutKey, string>>({
-  first: '',
-  second: '',
-  third: '',
-  fourth: '',
-  fifth: '',
-  sixth: '',
-});
+  const noFinishers: Record<PayoutKey, string> = { first: '', second: '', third: '', fourth: '', fifth: '', sixth: '' };
+  const [finishers, setFinishers] = useState<Record<PayoutKey, string>>(noFinishers);
 
   useEffect(() => {
   const unsubAuth = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -327,6 +321,12 @@ export default function App() {
       }
     );
     return () => unsubscribe();
+  }, [roomId]);
+
+  // Finish picks belong to one game: never carry them into another room (e.g. after a rematch).
+  useEffect(() => {
+    setFinishers(noFinishers);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId]);
 
   const players = room?.players ?? [];
@@ -484,8 +484,11 @@ export default function App() {
           ].slice(0, payoutMode)
         );
 
+  // The player picked for a place, only if they are in this game; anything else counts as not picked.
+  const pickFor = (key: PayoutKey) => (players.some((p) => p.id === finishers[key]) ? finishers[key] : '');
+  const paidKeys = PAYOUT_KEYS.slice(0, payoutMode);
   // Every paid place needs a player before the game can finish.
-  const missingFinisher = PAYOUT_KEYS.slice(0, Math.min(payoutMode, players.length)).some((key) => !finishers[key]);
+  const missingFinisher = paidKeys.slice(0, players.length).some((key) => !pickFor(key));
   const distributed = PAYOUT_KEYS.slice(0, payoutMode).reduce((sum, key) => sum + (Number(payouts[key]) || 0), 0);
   const remaining = prizePool - distributed;
 
@@ -1073,6 +1076,8 @@ async function closeBuyins() {
     PAYOUT_KEYS.forEach((key, i) => {
       next[key] = i < places ? String(amounts[i]) : '';
     });
+    // Places outside the new count lose their pick too.
+    setFinishers((prev) => ({ ...noFinishers, ...Object.fromEntries(PAYOUT_KEYS.slice(0, places).map((key) => [key, prev[key]])) }));
     await patchRoom({ payouts: next });
   }
 
@@ -1081,17 +1086,18 @@ async function closeBuyins() {
     const mode = Math.min(MAX_PLACES, Math.max(1, payoutMode + delta));
     if (mode === payoutMode) return;
     const next = { ...room.payouts, mode };
-    // Removing a place clears its amount and finisher so nothing stale is paid out.
-    if (delta < 0) {
-      const removed = PAYOUT_KEYS[payoutMode - 1];
-      next[removed] = '';
-      setFinishers((prev) => ({ ...prev, [removed]: '' }));
-    }
+    // Removing a place clears its amount and finisher so nothing stale is paid out;
+    // an added place starts empty so an old pick can't reappear in it.
+    const changed = PAYOUT_KEYS[Math.max(payoutMode, mode) - 1];
+    if (delta < 0) next[changed] = '';
+    setFinishers((prev) => ({ ...prev, [changed]: '' }));
     const event = createEvent('payouts_updated', identity, { mode });
     await patchRoom({ payouts: next, events: [event, ...events] });
   }
 
   function openFinishModal() {
+    // Positions are asked fresh every time the Finish dialog opens.
+    setFinishers(noFinishers);
     // First time: pre-fill the house default for this table size.
     const anyAmount = PAYOUT_KEYS.some((key) => String(payouts[key] ?? '').trim() !== '');
     if (!anyAmount) void applyDefaultPayouts(defaultPlaces(players.length));
@@ -1105,7 +1111,7 @@ async function closeBuyins() {
 
   async function finishTournament() {
     if (!isAdminUnlocked || !room || !identity || remaining !== 0 || missingFinisher) return;
-    const winner = players.find((p) => p.id === finishers.first)?.name ?? 'Unknown';
+    const winner = players.find((p) => p.id === pickFor('first'))?.name ?? 'Unknown';
     const event = createEvent('tournament_finished', identity, { winner });
     const historyItem: HistoryItem = {
       roomId: room.roomId,
@@ -1123,13 +1129,14 @@ async function closeBuyins() {
   phase: 'end',
   payouts: {
     ...room.payouts,
-    firstPlayerId: finishers.first,
-    secondPlayerId: finishers.second,
-    thirdPlayerId: finishers.third,
-    fourthPlayerId: finishers.fourth,
-    fifthPlayerId: finishers.fifth,
-    sixthPlayerId: finishers.sixth,
-    finalOrder: standingsFor(PAYOUT_KEYS.slice(0, payoutMode).map((key) => finishers[key])).map((p) => p.id),
+    // Only the paid places shown in the dialog are saved.
+    firstPlayerId: payoutMode > 0 ? pickFor('first') : '',
+    secondPlayerId: payoutMode > 1 ? pickFor('second') : '',
+    thirdPlayerId: payoutMode > 2 ? pickFor('third') : '',
+    fourthPlayerId: payoutMode > 3 ? pickFor('fourth') : '',
+    fifthPlayerId: payoutMode > 4 ? pickFor('fifth') : '',
+    sixthPlayerId: payoutMode > 5 ? pickFor('sixth') : '',
+    finalOrder: standingsFor(paidKeys.map(pickFor)).map((p) => p.id),
   },
   events: [event, ...events],
 });
@@ -2577,13 +2584,17 @@ async function closeBuyins() {
                       <span className="payout-pct">{Math.round((Number(payouts[key]) / prizePool) * 100)}%</span>
                     )}
                   </div>
-                  <select value={finishers[key]} onChange={(e) => setFinishers((prev) => ({ ...prev, [key]: e.target.value }))}>
+                  <select
+                    value={pickFor(key)}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setFinishers((prev) => ({ ...prev, [key]: id }));
+                    }}
+                  >
                     <option value="">Select player</option>
                     {players
-                      .filter((p) => {
-                        const selectedElsewhere = PAYOUT_KEYS.filter((otherKey) => otherKey !== key).some((otherKey) => finishers[otherKey] === p.id);
-                        return !selectedElsewhere || finishers[key] === p.id;
-                      })
+                      // Hide players already picked for another paid place on screen.
+                      .filter((p) => !paidKeys.some((otherKey) => otherKey !== key && pickFor(otherKey) === p.id))
                       .map((p) => (
                         <option key={p.id} value={p.id}>
                           {p.name} {p.active ? '(active)' : '(out)'}
