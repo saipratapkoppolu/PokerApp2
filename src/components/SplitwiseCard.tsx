@@ -131,10 +131,11 @@ export default function SplitwiseCard({ title, rows, onMessage, canAdd, added, o
     const remembered = load<Record<string, number>>(MAP_KEY, {});
     const next: Record<string, number> = {};
     const inGroup = (id?: number) => (id && g.members.some((m) => m.id === id) ? id : undefined);
-    // Order: src/config/splitwise.ts → last pick on this device → name match.
+    // Order: tip recipient's own ID → src/config/splitwise.ts → last pick on this device → name match.
     rows.forEach((r) => {
       const key = nameKey(r.name);
-      const id2 = inGroup(configIds[key]) ?? inGroup(remembered[key]) ?? guessMember(r.name, g.members);
+      const id2 =
+        inGroup(r.splitwiseId) ?? inGroup(configIds[key]) ?? inGroup(remembered[key]) ?? guessMember(r.name, g.members);
       if (id2) next[r.id] = id2;
     });
     setMemberFor(next);

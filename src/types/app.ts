@@ -150,10 +150,16 @@ export type RoomState = {
   sixthPlayerId?: string;
   /** Player ids in final finishing order, saved when the game is finished. */
   finalOrder?: string[];
+  /** Tip taken out of the prize pool (euros, as typed). */
+  tip?: string;
+  /** Who gets the tip: a Splitwise group member and/or a player in this game. */
+  tipTo?: TipRecipient;
 };
   /** Set once the results were added to Splitwise, so nobody adds them twice. */
   splitwise?: { expenseId: number; groupName: string; addedBy: string; addedAt: number };
 };
+
+export type TipRecipient = { name: string; splitwiseId?: number; playerId?: string };
 
 export type UndoState = {
   players: Player[];

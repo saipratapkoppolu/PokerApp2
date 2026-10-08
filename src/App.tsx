@@ -49,6 +49,7 @@ import type {
   UserIdentity,
   HistoryItem,
   RoomState,
+  TipRecipient,
   UndoState,
   BlindLevel,
   ClockState,
@@ -65,8 +66,11 @@ import ThemePicker from './components/ThemePicker';
 import { MAX_PLACES, PAYOUT_SPLITS, defaultPlaces, splitPool } from './utils/payouts';
 import { splitwiseRows } from './utils/splitwise';
 import SplitwiseCard from './components/SplitwiseCard';
+import TipCard from './components/TipCard';
+import { SPLITWISE_GROUP_ID } from './config/splitwise';
 import { useAlertsPreference, useTournamentClock } from './hooks/useTournamentClock';
 import { useLiveRooms } from './hooks/useLiveRooms';
+import { useSplitwiseMembers } from './hooks/useSplitwiseMembers';
 import { blindsLabel, chips, computeClock, formatClock, levelIndexForNumber, normalizeLevels, rememberMinutes } from './utils/blinds';
 import { randomTournamentName } from './utils/names';
 import { playSound, requestNotificationPermission, showSystemNotification, stopSong, unlockAudio, vibrate } from './utils/alerts';
@@ -185,6 +189,8 @@ export default function App() {
   const [rebuyMap, setRebuyMap] = useState<Record<string, boolean>>({});
   const wantsRebuy = (id: string) => !buyinsClosed && rebuyMap[id] !== false;
   const [winningHand, setWinningHand] = useState<WinningHand | ''>('');
+  // After the buy-in reminder level, each knockout asks whether to close buy-ins: '' = not answered yet.
+  const [closeBuyinsAnswer, setCloseBuyinsAnswer] = useState<'' | 'close' | 'keep'>('');
 
   const [showPayoutModal, setShowPayoutModal] = useState(false);
   const [undoStack, setUndoStack] = useState<UndoState[]>([]);
@@ -489,15 +495,29 @@ export default function App() {
   const paidKeys = PAYOUT_KEYS.slice(0, payoutMode);
   // Every paid place needs a player before the game can finish.
   const missingFinisher = paidKeys.slice(0, players.length).some((key) => !pickFor(key));
+  // Optional tip, taken out of the prize pool before the places are paid.
+  // No Splitwise group configured = nobody can be tipped, so no tip.
+  const tipAmount = SPLITWISE_GROUP_ID ? Math.max(0, Number(payouts.tip) || 0) : 0;
+  const tipTo = tipAmount > 0 ? payouts.tipTo : undefined;
+  // The tip shows on this player's result when they played.
+  const tipPlayerId = tipTo?.playerId && players.some((p) => p.id === tipTo.playerId) ? tipTo.playerId : '';
+  const missingTipTo = tipAmount > 0 && !payouts.tipTo;
+  // Splitwise group members for the tip dropdown (loaded when the Finish dialog opens).
+  const splitwiseMembers = useSplitwiseMembers(showPayoutModal);
   const distributed = PAYOUT_KEYS.slice(0, payoutMode).reduce((sum, key) => sum + (Number(payouts[key]) || 0), 0);
-  const remaining = prizePool - distributed;
+  const remaining = prizePool - tipAmount - distributed;
 
   // Spent / earned per player for the Splitwise expense (results page).
-  const splitRows = splitwiseRows(finalStandings, buyIn, (id) => {
-    const index = finalStandings.findIndex((p) => p.id === id);
-    const key = payoutKeyForIndex(index);
-    return key && index < payoutMode ? Number(payouts[key]) || 0 : 0;
-  });
+  const splitRows = splitwiseRows(
+    finalStandings,
+    buyIn,
+    (id) => {
+      const index = finalStandings.findIndex((p) => p.id === id);
+      const key = payoutKeyForIndex(index);
+      return key && index < payoutMode ? Number(payouts[key]) || 0 : 0;
+    },
+    tipTo ? { amount: tipAmount, name: tipTo.name, playerId: tipPlayerId || undefined, splitwiseId: tipTo.splitwiseId } : undefined
+  );
 
   const shareLink = roomId ? `${window.location.origin}${window.location.pathname}#room=${roomId}` : '';
   const selectedRegisteredUsers = registeredUsers.filter((user) => selectedRegisteredUserIds.includes(user.uid));
@@ -832,6 +852,7 @@ export default function App() {
     setKoStep(-1);
     setRebuyMap({});
     setWinningHand('');
+    setCloseBuyinsAnswer('');
     setIsRecordingKnockout(false);
     setKnockoutError('');
     setElimModal(true);
@@ -881,8 +902,13 @@ export default function App() {
     return gains;
   }
 
+  // The reminder level is over and buy-ins are still open: the knockout asks whether to close them.
+  const askCloseBuyins = lateRegPassed && !buyinsClosed;
   const knockoutReady =
-    selectedEliminatedIds.length > 0 && selectedEliminatedIds.every((bid) => (bustedBy[bid] ?? []).length > 0) && !!winningHand;
+    selectedEliminatedIds.length > 0 &&
+    selectedEliminatedIds.every((bid) => (bustedBy[bid] ?? []).length > 0) &&
+    !!winningHand &&
+    (!askCloseBuyins || closeBuyinsAnswer !== '');
 
   async function confirmElimination() {
     if (isRecordingKnockout || !isAdminUnlocked || !room || !identity || !knockoutReady) return;
@@ -942,13 +968,24 @@ export default function App() {
 
       snapshot.eventIdsToRemove = [event.id];
 
+      // Closing buy-ins with this knockout: one update, and Undo reopens them too.
+      const closing = askCloseBuyins && closeBuyinsAnswer === 'close' && room;
+      const closedEvent = closing ? createEvent('buyins_closed', identity) : null;
+      if (closedEvent) {
+        snapshot.eventIdsToRemove = [event.id, closedEvent.id];
+        snapshot.settings = { buyinsClosed: false };
+        snapshot.label += ' + close buy-ins';
+      }
+
       await patchRoom({
         players: updatedPlayers,
-        events: [event, ...events],
+        ...(closing ? { settings: { ...room.settings, buyinsClosed: true } } : {}),
+        events: closedEvent ? [closedEvent, event, ...events] : [event, ...events],
       });
 
       setUndoStack((prev) => [...prev, snapshot].slice(-10));
       setElimModal(false);
+      if (closedEvent) setAdminMessage('Knockout recorded. Buy-ins are now closed.');
     } catch (error) {
       console.error('Could not record knockout:', error);
       setKnockoutError('Could not record the knockout. Please check your connection and try again.');
@@ -1071,7 +1108,8 @@ async function closeBuyins() {
   /** Fill the payout amounts with the default split for `places` (whole euros). */
   async function applyDefaultPayouts(places: number) {
     if (!room || !isAdminUnlocked) return;
-    const amounts = splitPool(prizePool, places);
+    // The tip comes off the top; the places share what is left.
+    const amounts = splitPool(Math.max(0, prizePool - tipAmount), places);
     const next = { ...room.payouts, mode: places };
     PAYOUT_KEYS.forEach((key, i) => {
       next[key] = i < places ? String(amounts[i]) : '';
@@ -1109,8 +1147,20 @@ async function closeBuyins() {
     await patchRoom({ payouts: { ...room.payouts, [key]: value } });
   }
 
+  async function updateTip(change: { tip?: string; tipTo?: TipRecipient | null }) {
+    if (!room || !isAdminUnlocked) return;
+    const next = { ...room.payouts };
+    if (change.tip !== undefined) next.tip = change.tip;
+    // Firebase rejects undefined: drop empty fields, and null removes the recipient.
+    if (change.tipTo !== undefined) {
+      if (change.tipTo) next.tipTo = Object.fromEntries(Object.entries(change.tipTo).filter(([, v]) => v !== undefined)) as TipRecipient;
+      else delete next.tipTo;
+    }
+    await patchRoom({ payouts: next });
+  }
+
   async function finishTournament() {
-    if (!isAdminUnlocked || !room || !identity || remaining !== 0 || missingFinisher) return;
+    if (!isAdminUnlocked || !room || !identity || remaining !== 0 || missingFinisher || missingTipTo) return;
     const winner = players.find((p) => p.id === pickFor('first'))?.name ?? 'Unknown';
     const event = createEvent('tournament_finished', identity, { winner });
     const historyItem: HistoryItem = {
@@ -2034,7 +2084,9 @@ async function closeBuyins() {
             <section className="card winner-card">
               <div className="trophy">🏆</div>
               <div className="end-title">{finalStandings[0]?.name ?? 'Tournament complete'}</div>
-              <div className="muted">Prize pool €{fmt(prizePool)} settled</div>
+              <div className="muted">
+                Prize pool €{fmt(prizePool)} settled{tipTo ? ` · €${fmt(tipAmount)} tip to ${tipTo.name}` : ''}
+              </div>
             </section>
 
             <div className="stats-grid two">
@@ -2051,7 +2103,9 @@ async function closeBuyins() {
                   const totalBuyinCost = p.buyins * buyIn;
                   // Pot net = prize won − buy-ins paid; bounty net = bounties won − lost. Kept separate.
                   const potNet = finishingAmount - totalBuyinCost;
-                  const totalReturn = potNet + p.bountyBalance;
+                  // A tip received is shown on its own and added to the total.
+                  const tipReceived = p.id === tipPlayerId ? tipAmount : 0;
+                  const totalReturn = potNet + p.bountyBalance + tipReceived;
                   const signed = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}€${fmt(Math.abs(n))}`;
                   const tone = (n: number) => (n > 0 ? 'plus' : n < 0 ? 'minus' : '');
                   return (
@@ -2069,6 +2123,11 @@ async function closeBuyins() {
                           <span>
                             Bounty net <strong className={tone(p.bountyBalance)}>{signed(p.bountyBalance)}</strong>
                           </span>
+                          {tipReceived > 0 && (
+                            <span>
+                              Tip <strong className="plus">{signed(tipReceived)}</strong>
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="result-side">
@@ -2079,6 +2138,11 @@ async function closeBuyins() {
                   );
                 })}
               </div>
+              {tipTo && (
+                <div className="tiny muted tip-line">
+                  💁 Tip €{fmt(tipAmount)} from the pool → {tipTo.name}
+                </div>
+              )}
             </section>
 
             <SplitwiseCard
@@ -2504,6 +2568,31 @@ async function closeBuyins() {
                       </>
                     )}
 
+                    {askCloseBuyins && (
+                      <div className="close-buyins-ask">
+                        <div className="sub-label">{lateRegLabel} is over — close buy-ins after this knockout?</div>
+                        <div className="close-buyins-choices">
+                          <button
+                            type="button"
+                            className={`pick-btn ${closeBuyinsAnswer === 'close' ? 'selected' : ''}`}
+                            onClick={() => setCloseBuyinsAnswer('close')}
+                          >
+                            Close buy-ins
+                          </button>
+                          <button
+                            type="button"
+                            className={`pick-btn ${closeBuyinsAnswer === 'keep' ? 'selected' : ''}`}
+                            onClick={() => setCloseBuyinsAnswer('keep')}
+                          >
+                            Keep open
+                          </button>
+                        </div>
+                        {closeBuyinsAnswer === 'close' && selectedEliminatedIds.some(wantsRebuy) && (
+                          <div className="tiny muted">Rebuys ticked above still count.</div>
+                        )}
+                      </div>
+                    )}
+
                     <div className="bounty-summary">
                       {Object.entries(gains).map(([id, amount]) => (
                         <div key={`gain-${id}`}>
@@ -2572,8 +2661,17 @@ async function closeBuyins() {
                   +
                 </button>
               </div>
+              {/* Tip first: it comes off the top of the pool, and stays visible on short screens. */}
+              <TipCard
+                players={players}
+                members={splitwiseMembers}
+                amount={payouts.tip ?? ''}
+                to={payouts.tipTo}
+                onAmount={(tip) => updateTip({ tip })}
+                onTo={(to) => updateTip({ tipTo: to })}
+              />
               <button className="btn btn-ghost btn-block reset-split" onClick={() => applyDefaultPayouts(payoutMode)}>
-                Reset to default split ({(PAYOUT_SPLITS[payoutMode] ?? []).join(' / ')}%)
+                Reset to default split ({(PAYOUT_SPLITS[payoutMode] ?? []).join(' / ')}%{tipAmount > 0 ? ' after tip' : ''})
               </button>
               {PAYOUT_KEYS.slice(0, payoutMode).map((key) => (
                 <div className="payout-card" key={key}>
@@ -2613,11 +2711,12 @@ async function closeBuyins() {
               <strong className={remaining === 0 ? 'green' : remaining < 0 ? 'red' : 'gold'}>€{fmt(remaining)}</strong>
             </div>
             {missingFinisher && <div className="tiny muted">Pick a player for every paid place to finish.</div>}
+            {!missingFinisher && missingTipTo && <div className="tiny muted">Pick who gets the tip, or set it to 0.</div>}
             <div className="modal-actions">
               <button className="btn btn-dark" onClick={() => setShowPayoutModal(false)}>
                 Close
               </button>
-              <button className="btn btn-green" disabled={remaining !== 0 || missingFinisher} onClick={finishTournament}>
+              <button className="btn btn-green" disabled={remaining !== 0 || missingFinisher || missingTipTo} onClick={finishTournament}>
                 Finish
               </button>
             </div>

@@ -58,6 +58,9 @@ Existing lint errors (`any` in auth handlers) predate this work.
 - **Buy-ins close only when the admin taps Close** (`settings.buyinsClosed`). Never auto-close.
   `lateRegLevel` is just a reminder: after that level the status line turns gold for the admin.
   Rebuys only while open; the rebuy checkbox is **ticked by default** for each busted player (admin unticks).
+  Once the reminder level is over and buy-ins are still open, every knockout's last step asks
+  "close buy-ins after this knockout?" (Close / Keep open, must answer before Confirm). Close = closed in the same
+  update as the knockout (rebuys ticked for that hand still count); Undo reopens them with the knockout.
 - **Knockouts**: wizard — who is out → one screen per busted player "who took this bounty" (multi-select =
   split that bounty) → winning hand + rebuys + summary. `bustedBy: Record<bustedId, winnerIds[]>`.
 - **Standings (live)**: Buy-in (paid, ×N rebuys) · Bounty net (won − lost). Admin taps an active row to open
@@ -67,6 +70,13 @@ Existing lint errors (`any` in auth handlers) predate this work.
   modal first opens; admin edits any amount, adds/removes places (1–6), or resets to the default split.
   Finishing positions are asked fresh every time the Finish dialog opens (picks are never remembered
   between opens or games); Finish stays disabled until every paid place has a player from this game.
+- **Tip** (`TipCard`, `useSplitwiseMembers`): optional tip in the Finish dialog, taken out of the prize pool
+  (remaining = pool − places − tip; "Reset to default split" splits what's left after the tip). The dropdown lists
+  the Splitwise group's members when this phone is connected to Splitwise, else the game's players. With no group ID
+  (`SPLITWISE_GROUP_ID = 0`) nobody is listed and the tip is disabled. Saved as
+  `payouts.tip` + `payouts.tipTo = { name, splitwiseId?, playerId? }` (playerId when the member played, by config
+  or name match). Results show it as its own "Tip" amount on that player (added to Total) plus a tip line;
+  Splitwise counts it as earned for the recipient (a non-player gets their own row). Finish needs a recipient when tip > 0.
 - **Results**: pot net (prize − buy-ins) and bounty net shown **separately**, plus total. Never merge them.
 - **Blinds-up sequence** (alerts on): spoken 5-4-3-2-1 → "Time is up! Time is up! Blinds are now X, Y." →
   song `public/sounds/blinds-up.mp3` ("Blinds Rise" by gsrk_au, 19.9 s, trimmed + loudness-normalised from the

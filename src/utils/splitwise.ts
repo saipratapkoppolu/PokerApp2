@@ -25,7 +25,13 @@ export type SplitwiseRow = {
   pot: number;
   /** Bounties won − bounties lost. */
   bounty: number;
+  /** Tip received out of the prize pool (0 if none). */
+  tip: number;
+  /** Splitwise person this row belongs to, when already known (the tip recipient). */
+  splitwiseId?: number;
 };
+
+export type SplitwiseTip = { amount: number; name: string; playerId?: string; splitwiseId?: number };
 
 const cents = (n: number) => Math.round(n * 100);
 
@@ -33,14 +39,31 @@ export function splitwiseRows(
   players: { id: string; name: string; buyins: number; bountyBalance: number }[],
   buyIn: number,
   prizeFor: (id: string) => number,
+  tip?: SplitwiseTip,
 ): SplitwiseRow[] {
-  const rows = players.map((p) => {
-    const bounty = p.bountyBalance || 0;
-    const spentC = cents(p.buyins * buyIn + Math.max(0, -bounty));
-    const earnedC = cents(prizeFor(p.id) + Math.max(0, bounty));
-    const potC = cents(prizeFor(p.id) - p.buyins * buyIn);
-    return { id: p.id, name: p.name, spentC, earnedC, potC, bountyC: cents(bounty) };
-  });
+  const tipC = tip && tip.amount > 0 ? cents(tip.amount) : 0;
+  const tipPlayer = tipC ? players.find((p) => p.id === tip?.playerId) : undefined;
+  const rows: { id: string; name: string; spentC: number; earnedC: number; potC: number; bountyC: number; tipC: number; splitwiseId?: number }[] =
+    players.map((p) => {
+      const bounty = p.bountyBalance || 0;
+      const tipped = p === tipPlayer ? tipC : 0;
+      const spentC = cents(p.buyins * buyIn + Math.max(0, -bounty));
+      const earnedC = cents(prizeFor(p.id) + Math.max(0, bounty)) + tipped;
+      const potC = cents(prizeFor(p.id) - p.buyins * buyIn);
+      return {
+        id: p.id,
+        name: p.name,
+        spentC,
+        earnedC,
+        potC,
+        bountyC: cents(bounty),
+        tipC: tipped,
+        ...(tipped && tip?.splitwiseId ? { splitwiseId: tip.splitwiseId } : {}),
+      };
+    });
+  // A tip to someone who didn't play: their own row, earning only the tip.
+  if (tip && tipC && !tipPlayer)
+    rows.push({ id: 'tip', name: tip.name, spentC: 0, earnedC: tipC, potC: 0, bountyC: 0, tipC, splitwiseId: tip.splitwiseId });
   // Split bounties (e.g. thirds) can leave a cent of rounding; give it to the biggest earner
   // so both columns match to the cent, as Splitwise requires.
   const diff = rows.reduce((s, r) => s + r.spentC - r.earnedC, 0);
@@ -56,6 +79,8 @@ export function splitwiseRows(
     net: (r.earnedC - r.spentC) / 100,
     pot: r.potC / 100,
     bounty: r.bountyC / 100,
+    tip: r.tipC / 100,
+    ...(r.splitwiseId ? { splitwiseId: r.splitwiseId } : {}),
   }));
 }
 
@@ -69,8 +94,11 @@ export function splitwiseText(title: string, date: Date, rows: SplitwiseRow[]): 
     `🃏 Poker: ${title} (${date.toLocaleDateString()})`,
     `Total ${money(total)}`,
     '',
-    'Net (pot + bounty):',
-    ...rows.map((r) => `  ${r.name}: pot ${signed(r.pot)} · bounty ${signed(r.bounty)} · net ${signed(r.net)}`),
+    'Net (pot + bounty + tip):',
+    ...rows.map(
+      (r) =>
+        `  ${r.name}: pot ${signed(r.pot)} · bounty ${signed(r.bounty)}${r.tip ? ` · tip ${signed(r.tip)}` : ''} · net ${signed(r.net)}`,
+    ),
   ];
   return lines.join('\n');
 }

@@ -2727,3 +2727,39 @@ button.standing-row:active {
   text-decoration: underline;
   font-size: inherit;
 }
+
+/* ---------- Tip (finish dialog + results) ---------- */
+
+.tip-card {
+  margin-top: 10px;
+}
+
+.tip-hint {
+  grid-column: 1 / -1;
+}
+
+.tip-line {
+  margin-top: 10px;
+}
+
+/* ---------- Knockout: close buy-ins question ---------- */
+
+.close-buyins-ask {
+  margin-top: 12px;
+  padding: 10px 12px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(242, 193, 78, 0.35);
+  background: var(--inset);
+}
+
+.close-buyins-ask .sub-label {
+  margin-top: 0;
+  color: var(--gold);
+}
+
+.close-buyins-choices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 6px;
+}
