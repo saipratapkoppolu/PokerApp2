@@ -2763,3 +2763,29 @@ button.standing-row:active {
   gap: 8px;
   margin-bottom: 6px;
 }
+
+/* ---------- Clock: phone paused the sound ---------- */
+
+.sound-paused {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  margin: 10px 0 4px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(239, 83, 80, 0.45);
+  background: rgba(239, 83, 80, 0.12);
+  color: #ffb4b0;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.clock-fullscreen .sound-paused {
+  width: auto;
+  max-width: 90%;
+}

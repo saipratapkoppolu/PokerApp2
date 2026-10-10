@@ -5,14 +5,33 @@
  */
 
 let ctx: AudioContext | null = null;
+const stateListeners = new Set<() => void>();
+const notifyState = () => stateListeners.forEach((listener) => listener());
 
 function getContext() {
   if (!ctx) {
     const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctor) return null;
     ctx = new Ctor();
+    ctx.addEventListener('statechange', notifyState);
   }
   return ctx;
+}
+
+/**
+ * True when sound can't play right now: not unlocked since the page loaded, or the phone suspended
+ * audio (screen lock, another app, a call). Only a tap can turn it back on.
+ */
+export function audioPaused() {
+  return !ctx || ctx.state !== 'running';
+}
+
+/** Called whenever the audio state may have changed. Returns an unsubscribe function. */
+export function onAudioStateChange(listener: () => void) {
+  stateListeners.add(listener);
+  return () => {
+    stateListeners.delete(listener);
+  };
 }
 
 export async function unlockAudio() {
@@ -38,6 +57,7 @@ export async function unlockAudio() {
     // Speech not supported.
   }
   void preloadSong();
+  notifyState();
   return audio.state === 'running';
 }
 

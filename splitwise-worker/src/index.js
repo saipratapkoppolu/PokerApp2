@@ -143,7 +143,14 @@ function isAllowedOrigin(origin, env) {
 
 function isAllowedUrl(value, env) {
   try {
-    return isAllowedOrigin(new URL(value).origin, env);
+    const url = new URL(value);
+    // Native app return address (e.g. pokertracker://splitwise): custom schemes have no web origin,
+    // so they must be listed exactly in ALLOWED_APP_RETURNS (query and fragment ignored).
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      const target = `${url.protocol}//${url.host}${url.pathname}`;
+      return (env.ALLOWED_APP_RETURNS || '').split(',').some((p) => p.trim() === target);
+    }
+    return isAllowedOrigin(url.origin, env);
   } catch {
     return false;
   }

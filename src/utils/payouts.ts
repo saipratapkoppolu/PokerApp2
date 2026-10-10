@@ -17,10 +17,14 @@ export function defaultPlaces(playerCount: number) {
   return 4;
 }
 
-/** Split the pool into whole-euro amounts; rounding leftovers go to 1st place. */
+/**
+ * Split the pool into whole-euro amounts: each share is rounded to the nearest euro (.5 and up →
+ * ceiling, below → floor), then 1st place absorbs the difference so the total equals the pool.
+ * €62 over 60/40 → 37 / 25 (exact 37.2 / 24.8). Same rule as the iOS app.
+ */
 export function splitPool(pool: number, places: number): number[] {
   const pct = PAYOUT_SPLITS[places] ?? PAYOUT_SPLITS[3];
-  const amounts = pct.map((p) => Math.floor((pool * p) / 100));
+  const amounts = pct.map((p) => Math.round((pool * p) / 100));
   amounts[0] += pool - amounts.reduce((sum, n) => sum + n, 0);
   return amounts;
 }

@@ -41,4 +41,5 @@ Set the Splitwise app's **Callback URL** to `http://localhost:8787/callback`, an
 http://localhost:5173.
 
 `wrangler.toml` → `ALLOWED_ORIGINS` lists the sites that may use the worker (live site, Firebase
-preview links, `http://localhost:5173`). `GROUP_ID` optionally locks expenses to one Splitwise group.
+preview links, `http://localhost:5173`). `ALLOWED_APP_RETURNS` lists exact app return addresses for the
+iOS app's login (`pokertracker://splitwise`). `GROUP_ID` optionally locks expenses to one Splitwise group.

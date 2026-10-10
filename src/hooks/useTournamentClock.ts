@@ -3,7 +3,20 @@ import { onValue, ref } from 'firebase/database';
 import { db } from '../firebase';
 import type { BlindLevel, ClockState, LevelSound } from '../types/app';
 import { blindsLabel, computeClock, type ClockView } from '../utils/blinds';
-import { keepScreenAwake, playClip, playSong, playSound, preloadClip, showSystemNotification, speak, stopSong, vibrate } from '../utils/alerts';
+import {
+  audioPaused,
+  keepScreenAwake,
+  onAudioStateChange,
+  playClip,
+  playSong,
+  playSound,
+  preloadClip,
+  showSystemNotification,
+  speak,
+  stopSong,
+  unlockAudio,
+  vibrate,
+} from '../utils/alerts';
 import { isMusicSound, toneDataUrl, toneUidOf } from '../utils/tones';
 
 const ALERTS_KEY = 'poker.alertsEnabled';
@@ -27,6 +40,41 @@ export function useAlertsPreference() {
   }, []);
 
   return [enabled, update] as const;
+}
+
+/**
+ * Alerts are on but the phone has paused sound (reload, screen lock, another app, a call).
+ * Any tap turns it back on; until then the blinds-up alert would be silent.
+ */
+export function useSoundPaused(alertsEnabled: boolean) {
+  const [paused, setPaused] = useState(false);
+
+  useEffect(() => {
+    if (!alertsEnabled) {
+      setPaused(false);
+      return;
+    }
+    const check = () => setPaused(audioPaused());
+    // Only a finger lifting (or a click / key) lets a page start sound; a finger going down does not.
+    const rearm = () => {
+      if (audioPaused()) void unlockAudio().then(check);
+    };
+    check();
+    const unsubscribe = onAudioStateChange(check);
+    document.addEventListener('visibilitychange', check);
+    // Some phones (iOS "interrupted") don't always report the change, so look again now and then.
+    const id = window.setInterval(check, 3000);
+    const events = ['pointerup', 'touchend', 'click', 'keydown'] as const;
+    events.forEach((name) => window.addEventListener(name, rearm, true));
+    return () => {
+      unsubscribe();
+      document.removeEventListener('visibilitychange', check);
+      window.clearInterval(id);
+      events.forEach((name) => window.removeEventListener(name, rearm, true));
+    };
+  }, [alertsEnabled]);
+
+  return paused;
 }
 
 /** Clock offset between this device and the Firebase server, so every phone shows the same time. */

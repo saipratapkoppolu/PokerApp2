@@ -68,7 +68,7 @@ import { splitwiseRows } from './utils/splitwise';
 import SplitwiseCard from './components/SplitwiseCard';
 import TipCard from './components/TipCard';
 import { SPLITWISE_GROUP_ID } from './config/splitwise';
-import { useAlertsPreference, useTournamentClock } from './hooks/useTournamentClock';
+import { useAlertsPreference, useSoundPaused, useTournamentClock } from './hooks/useTournamentClock';
 import { useLiveRooms } from './hooks/useLiveRooms';
 import { useSplitwiseMembers } from './hooks/useSplitwiseMembers';
 import { blindsLabel, chips, computeClock, formatClock, levelIndexForNumber, normalizeLevels, rememberMinutes } from './utils/blinds';
@@ -372,13 +372,9 @@ export default function App() {
   const lateRegPassed = phase === 'game' && lateRegIndex >= 0 && clockView.levelIndex > lateRegIndex;
   const buyinsClosed = buyinsClosedFlag;
 
-  // Browsers need a tap before audio can play; re-arm after a reload when alerts were left on.
-  useEffect(() => {
-    if (!alertsEnabled) return;
-    const arm = () => void unlockAudio();
-    window.addEventListener('pointerdown', arm, { once: true });
-    return () => window.removeEventListener('pointerdown', arm);
-  }, [alertsEnabled]);
+  // Browsers need a tap before audio can play, and phones pause it again on screen lock or app switch:
+  // every tap turns it back on, and the clock shows a warning while it is paused.
+  const soundPaused = useSoundPaused(alertsEnabled && phase === 'game');
 
   // Admin access follows the room: if this account is the room's current admin, stay unlocked
   // after a refresh; if someone else took admin, lock this phone.
@@ -1967,6 +1963,7 @@ async function closeBuyins() {
               view={clockView}
               isAdmin={isAdminUnlocked}
               alertsEnabled={alertsEnabled}
+              soundPaused={soundPaused}
               onToggleAlerts={toggleAlerts}
               onStart={startClock}
               onPause={pauseClock}

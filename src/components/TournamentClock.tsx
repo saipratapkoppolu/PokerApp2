@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Bell, BellOff, Coffee, Maximize2, Pause, Play, Plus, RotateCcw, SkipBack, SkipForward, X } from 'lucide-react';
+import { Bell, BellOff, Coffee, Maximize2, Pause, Play, Plus, RotateCcw, SkipBack, SkipForward, VolumeX, X } from 'lucide-react';
 import type { ClockView } from '../utils/blinds';
 import { blindsLabel, chips, formatClock } from '../utils/blinds';
 
@@ -7,6 +7,8 @@ type Props = {
   view: ClockView;
   isAdmin: boolean;
   alertsEnabled: boolean;
+  /** Alerts are on but the phone paused sound: the next tap turns it back on. */
+  soundPaused?: boolean;
   onToggleAlerts: () => void;
   onStart: () => void;
   onPause: () => void;
@@ -68,7 +70,7 @@ function Controls(props: Props) {
 }
 
 export default function TournamentClock(props: Props) {
-  const { view, isAdmin, alertsEnabled, onToggleAlerts } = props;
+  const { view, isAdmin, alertsEnabled, soundPaused, onToggleAlerts } = props;
   const [fullscreen, setFullscreen] = useState(false);
   const warning = view.running && view.remainingMs <= 60_000 && !view.level.isBreak;
   const paused = !view.running && !view.finished;
@@ -87,6 +89,12 @@ export default function TournamentClock(props: Props) {
 
   const title = view.level.isBreak ? 'Break' : `Level ${view.levelNumber}`;
   const next = view.nextLevel ? blindsLabel(view.nextLevel) : 'Final level';
+  // Any tap re-enables sound (see useSoundPaused); this button just says so where everyone looks.
+  const soundWarning = alertsEnabled && soundPaused && (
+    <button type="button" className="sound-paused">
+      <VolumeX size={18} /> Sound is paused — tap here so the blinds alert plays
+    </button>
+  );
 
   return (
     <>
@@ -113,6 +121,7 @@ export default function TournamentClock(props: Props) {
           </div>
         </div>
 
+        {soundWarning}
         {paused && <div className="paused-badge">Paused</div>}
         <div className="clock-time" aria-live="off">
           {formatClock(view.remainingMs)}
@@ -135,6 +144,7 @@ export default function TournamentClock(props: Props) {
             <X size={22} />
           </button>
           <div className="clock-level big">{title}</div>
+          {soundWarning}
           {paused && <div className="paused-badge big">Paused</div>}
           <div className="clock-time big">{formatClock(view.remainingMs)}</div>
           <div className="clock-progress big">

@@ -66,7 +66,7 @@ Existing lint errors (`any` in auth handlers) predate this work.
 - **Standings (live)**: Buy-in (paid, ×N rebuys) · Bounty net (won − lost). Admin taps an active row to open
   the knockout wizard for that player.
 - **Payouts** (`src/utils/payouts.ts`): defaults only, never locked. Players ≤5 → 2 places 60/40, 6–9 → 3 places
-  50/30/20, 10+ → 4 places 40/30/20/10. Pre-filled as whole-euro **amounts** (leftover to 1st) when the finish
+  50/30/20, 10+ → 4 places 40/30/20/10. Pre-filled as whole-euro **amounts** (each rounded to the nearest euro; 1st absorbs the difference) when the finish
   modal first opens; admin edits any amount, adds/removes places (1–6), or resets to the default split.
   Finishing positions are asked fresh every time the Finish dialog opens (picks are never remembered
   between opens or games); Finish stays disabled until every paid place has a player from this game.
@@ -89,6 +89,10 @@ Existing lint errors (`any` in auth handlers) predate this work.
   length) + `tones/{uid}` (audio). Rules allow create or delete only, never overwrite → "delete to upload again".
   Admin picks it as `settings.levelSound = 'tone:<uid>'`; treated like the song (no countdown/amounts); if the
   tone was deleted the fanfare plays. No Firebase Storage (would need the Blaze plan).
+- **Sound unlock** (`useSoundPaused`): phones pause web audio on reload, screen lock, app switch or a call, and only a
+  tap can resume it. With alerts on, EVERY tap (`pointerup`/`touchend`/`click`/`keydown` — never `pointerdown`, which
+  doesn't count as a user gesture on touch screens) re-unlocks audio + speech when paused, and the clock card and
+  full-screen view show a red "Sound is paused — tap here" button until it plays again.
 - **Knockout alerts**: every phone (incl. spectators) watches `events[0]`; a new `knockout_recorded` shows a toast
   with who busted whom + bounty won/lost (`meta.bountyText`) + rebuys, plus a system notification when the app is
   in the background (alerts on). **No sound or voice for knockouts.** Old events are never replayed.
