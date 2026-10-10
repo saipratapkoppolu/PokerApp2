@@ -1,6 +1,6 @@
 import { SPLITWISE_GROUP_ID, SPLITWISE_PLAYER_IDS } from '../config/splitwise';
 import type { Player, TipRecipient } from '../types/app';
-import { guessMember, splitwiseApiEnabled, type SplitwiseMember } from '../utils/splitwise';
+import { connectSplitwise, guessMember, splitwiseApiEnabled, type SplitwiseMember } from '../utils/splitwise';
 
 type Props = {
   players: Player[];
@@ -75,7 +75,15 @@ export default function TipCard({ players, members, amount, to, onAmount, onTo }
         />
       </div>
       {!SPLITWISE_GROUP_ID && <div className="tiny muted tip-hint">No Splitwise group set, so nobody can get a tip.</div>}
-      {SPLITWISE_GROUP_ID > 0 && !members && splitwiseApiEnabled && <div className="tiny muted tip-hint">Connect Splitwise on this phone to tip anyone in the group.</div>}
+      {SPLITWISE_GROUP_ID > 0 && !members && splitwiseApiEnabled && (
+        <div className="tip-hint">
+          <div className="tiny muted">Connect Splitwise on this phone to tip anyone in the group.</div>
+          {/* Full-page login; comes back to this room. The tip and amounts are saved in the room. */}
+          <button type="button" className="btn btn-green btn-block" onClick={connectSplitwise}>
+            Connect Splitwise
+          </button>
+        </div>
+      )}
     </div>
   );
 }
