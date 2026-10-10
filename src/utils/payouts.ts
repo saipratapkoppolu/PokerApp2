@@ -18,6 +18,20 @@ export function defaultPlaces(playerCount: number) {
 }
 
 /**
+ * Scale the current place amounts to a new total, keeping their proportions (used when the tip
+ * changes: the admin's split stays, only the money to share changes). Each amount is rounded to the
+ * nearest euro and 1st absorbs the difference. Falls back to the default split when nothing is set.
+ * 70 / 30 of €100, tip €10 → 63 / 27.
+ */
+export function scaleAmounts(amounts: number[], total: number): number[] {
+  const sum = amounts.reduce((s, n) => s + n, 0);
+  if (sum <= 0) return splitPool(total, amounts.length);
+  const scaled = amounts.map((n) => Math.round((n * total) / sum));
+  scaled[0] += total - scaled.reduce((s, n) => s + n, 0);
+  return scaled;
+}
+
+/**
  * Split the pool into whole-euro amounts: each share is rounded to the nearest euro (.5 and up →
  * ceiling, below → floor), then 1st place absorbs the difference so the total equals the pool.
  * €62 over 60/40 → 37 / 25 (exact 37.2 / 24.8). Same rule as the iOS app.

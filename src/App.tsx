@@ -63,8 +63,8 @@ import ToneUploader from './components/ToneUploader';
 import { useToneIndex } from './hooks/useTones';
 import { toneSound, toneUidOf } from './utils/tones';
 import ThemePicker from './components/ThemePicker';
-import { MAX_PLACES, PAYOUT_SPLITS, defaultPlaces, splitPool } from './utils/payouts';
-import { splitwiseRows } from './utils/splitwise';
+import { MAX_PLACES, PAYOUT_SPLITS, defaultPlaces, scaleAmounts, splitPool } from './utils/payouts';
+import { connectSplitwise, splitwiseRows } from './utils/splitwise';
 import SplitwiseCard from './components/SplitwiseCard';
 import TipCard from './components/TipCard';
 import { SPLITWISE_GROUP_ID } from './config/splitwise';
@@ -134,6 +134,9 @@ function Badge({ label, value, tone }: { label: string; value: string; tone?: 'g
 function placeIcon(index: number) {
   return index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}`;
 }
+
+/** Room whose Finish dialog to reopen after a Splitwise login started from the tip. */
+const REOPEN_FINISH_KEY = 'poker.reopenFinish';
 
 export default function App() {
   const [page, setPage] = useState<AppPage>('auth');
@@ -375,6 +378,31 @@ export default function App() {
   // Browsers need a tap before audio can play, and phones pause it again on screen lock or app switch:
   // every tap turns it back on, and the clock shows a warning while it is paused.
   const soundPaused = useSoundPaused(alertsEnabled && phase === 'game');
+
+  // Back from the Splitwise login started in the Finish dialog's tip: reopen it at the tip.
+  useEffect(() => {
+    if (!room || !isAdminUnlocked || phase !== 'game') return;
+    let pending: string | null = null;
+    try {
+      pending = sessionStorage.getItem(REOPEN_FINISH_KEY);
+      if (pending === room.roomId) sessionStorage.removeItem(REOPEN_FINISH_KEY);
+    } catch {
+      return;
+    }
+    if (pending !== room.roomId) return;
+    openFinishModal();
+    requestAnimationFrame(() => document.querySelector('.tip-card')?.scrollIntoView({ block: 'center' }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room?.roomId, isAdminUnlocked, phase]);
+
+  function connectSplitwiseForTip() {
+    try {
+      if (room) sessionStorage.setItem(REOPEN_FINISH_KEY, room.roomId);
+    } catch {
+      // Without storage the login still works; the Finish dialog just isn't reopened.
+    }
+    connectSplitwise();
+  }
 
   // Admin access follows the room: if this account is the room's current admin, stay unlocked
   // after a refresh; if someone else took admin, lock this phone.
@@ -1146,7 +1174,16 @@ async function closeBuyins() {
   async function updateTip(change: { tip?: string; tipTo?: TipRecipient | null }) {
     if (!room || !isAdminUnlocked) return;
     const next = { ...room.payouts };
-    if (change.tip !== undefined) next.tip = change.tip;
+    if (change.tip !== undefined) {
+      next.tip = change.tip;
+      // The tip comes off the top: scale the current split to what is left (picks are kept).
+      const tip = SPLITWISE_GROUP_ID ? Math.max(0, Number(change.tip) || 0) : 0;
+      const current = PAYOUT_KEYS.slice(0, payoutMode).map((key) => Math.max(0, Number(room.payouts[key]) || 0));
+      const amounts = scaleAmounts(current, Math.max(0, prizePool - tip));
+      PAYOUT_KEYS.forEach((key, i) => {
+        next[key] = i < payoutMode ? String(amounts[i]) : '';
+      });
+    }
     // Firebase rejects undefined: drop empty fields, and null removes the recipient.
     if (change.tipTo !== undefined) {
       if (change.tipTo) next.tipTo = Object.fromEntries(Object.entries(change.tipTo).filter(([, v]) => v !== undefined)) as TipRecipient;
@@ -2666,6 +2703,7 @@ async function closeBuyins() {
                 to={payouts.tipTo}
                 onAmount={(tip) => updateTip({ tip })}
                 onTo={(to) => updateTip({ tipTo: to })}
+                onConnect={connectSplitwiseForTip}
               />
               <button className="btn btn-ghost btn-block reset-split" onClick={() => applyDefaultPayouts(payoutMode)}>
                 Reset to default split ({(PAYOUT_SPLITS[payoutMode] ?? []).join(' / ')}%{tipAmount > 0 ? ' after tip' : ''})
@@ -2675,8 +2713,9 @@ async function closeBuyins() {
                   <div className="payout-place">
                     <span>{PLACE_META[key].emoji}</span>
                     <span>{PLACE_META[key].label}</span>
-                    {prizePool > 0 && Number(payouts[key]) > 0 && (
-                      <span className="payout-pct">{Math.round((Number(payouts[key]) / prizePool) * 100)}%</span>
+                    {/* Share of what the places split (pool − tip), so a tip doesn't change the percentages. */}
+                    {prizePool - tipAmount > 0 && Number(payouts[key]) > 0 && (
+                      <span className="payout-pct">{Math.round((Number(payouts[key]) / (prizePool - tipAmount)) * 100)}%</span>
                     )}
                   </div>
                   <select

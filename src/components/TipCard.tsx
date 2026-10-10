@@ -1,6 +1,6 @@
 import { SPLITWISE_GROUP_ID, SPLITWISE_PLAYER_IDS } from '../config/splitwise';
 import type { Player, TipRecipient } from '../types/app';
-import { connectSplitwise, guessMember, splitwiseApiEnabled, type SplitwiseMember } from '../utils/splitwise';
+import { guessMember, splitwiseApiEnabled, type SplitwiseMember } from '../utils/splitwise';
 
 type Props = {
   players: Player[];
@@ -10,6 +10,8 @@ type Props = {
   to?: TipRecipient;
   onAmount: (amount: string) => void;
   onTo: (to: TipRecipient | null) => void;
+  /** Splitwise login; the Finish dialog reopens at the tip afterwards. */
+  onConnect: () => void;
 };
 
 const nameKey = (name: string) => name.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -20,7 +22,7 @@ const configIds: Record<string, number> = Object.fromEntries(
 const valueOf = (to?: TipRecipient) => (to?.splitwiseId ? `sw:${to.splitwiseId}` : to?.playerId ? `player:${to.playerId}` : '');
 
 /** Finish dialog: optional tip out of the prize pool, to anyone in the Splitwise group. */
-export default function TipCard({ players, members, amount, to, onAmount, onTo }: Props) {
+export default function TipCard({ players, members, amount, to, onAmount, onTo, onConnect }: Props) {
   // The game's player who is this Splitwise member (config, then name match), so the tip shows on their result.
   const playerFor = (m: SplitwiseMember) =>
     players.find((p) => configIds[nameKey(p.name)] === m.id) ?? players.find((p) => guessMember(p.name, members ?? []) === m.id);
@@ -78,8 +80,8 @@ export default function TipCard({ players, members, amount, to, onAmount, onTo }
       {SPLITWISE_GROUP_ID > 0 && !members && splitwiseApiEnabled && (
         <div className="tip-hint">
           <div className="tiny muted">Connect Splitwise on this phone to tip anyone in the group.</div>
-          {/* Full-page login; comes back to this room. The tip and amounts are saved in the room. */}
-          <button type="button" className="btn btn-green btn-block" onClick={connectSplitwise}>
+          {/* Full-page login; comes back to this room's Finish dialog. The tip and amounts are saved in the room. */}
+          <button type="button" className="btn btn-green btn-block" onClick={onConnect}>
             Connect Splitwise
           </button>
         </div>
