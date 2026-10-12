@@ -70,6 +70,7 @@ import TipCard from './components/TipCard';
 import { SPLITWISE_GROUP_ID } from './config/splitwise';
 import { useAlertsPreference, useSoundPaused, useTournamentClock } from './hooks/useTournamentClock';
 import { useLiveRooms } from './hooks/useLiveRooms';
+import { useSplitwiseAccess } from './hooks/useSplitwiseAccess';
 import { useSplitwiseMembers } from './hooks/useSplitwiseMembers';
 import { blindsLabel, chips, computeClock, formatClock, levelIndexForNumber, normalizeLevels, rememberMinutes } from './utils/blinds';
 import { randomTournamentName } from './utils/names';
@@ -528,7 +529,9 @@ export default function App() {
   const tipPlayerId = tipTo?.playerId && players.some((p) => p.id === tipTo.playerId) ? tipTo.playerId : '';
   const missingTipTo = tipAmount > 0 && !payouts.tipTo;
   // Splitwise group members for the tip dropdown (loaded when the Finish dialog opens).
-  const splitwiseMembers = useSplitwiseMembers(showPayoutModal);
+  // Splitwise is only for accounts on the allow-list; nobody else sees it anywhere.
+  const splitwiseAllowed = useSplitwiseAccess(identity?.uid);
+  const splitwiseMembers = useSplitwiseMembers(showPayoutModal && splitwiseAllowed);
   const distributed = PAYOUT_KEYS.slice(0, payoutMode).reduce((sum, key) => sum + (Number(payouts[key]) || 0), 0);
   const remaining = prizePool - tipAmount - distributed;
 
@@ -2201,18 +2204,20 @@ async function reopenBuyins() {
               )}
             </section>
 
-            <SplitwiseCard
-              title={room?.title ?? ''}
-              rows={splitRows}
-              onMessage={setAdminMessage}
-              canAdd={isAdminUnlocked}
-              added={room?.splitwise}
-              onAdded={({ expenseId, groupName }) =>
-                patchRoom({
-                  splitwise: { expenseId, groupName, addedBy: identity?.displayName ?? 'admin', addedAt: Date.now() },
-                })
-              }
-            />
+            {splitwiseAllowed && (
+              <SplitwiseCard
+                title={room?.title ?? ''}
+                rows={splitRows}
+                onMessage={setAdminMessage}
+                canAdd={isAdminUnlocked}
+                added={room?.splitwise}
+                onAdded={({ expenseId, groupName }) =>
+                  patchRoom({
+                    splitwise: { expenseId, groupName, addedBy: identity?.displayName ?? 'admin', addedAt: Date.now() },
+                  })
+                }
+              />
+            )}
 
             <button className="btn btn-green btn-block btn-lg" onClick={createFreshRoomFromCurrent}>
               Rematch with same players
@@ -2726,6 +2731,7 @@ async function reopenBuyins() {
                 onAmount={(tip) => updateTip({ tip })}
                 onTo={(to) => updateTip({ tipTo: to })}
                 onConnect={connectSplitwiseForTip}
+                canConnect={splitwiseAllowed}
               />
               <button className="btn btn-ghost btn-block reset-split" onClick={() => applyDefaultPayouts(payoutMode)}>
                 Reset to default split ({(PAYOUT_SPLITS[payoutMode] ?? []).join(' / ')}%{tipAmount > 0 ? ' after tip' : ''})

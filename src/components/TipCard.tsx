@@ -12,6 +12,8 @@ type Props = {
   onTo: (to: TipRecipient | null) => void;
   /** Splitwise login; the Finish dialog reopens at the tip afterwards. */
   onConnect: () => void;
+  /** On the Splitwise allow-list: may connect to tip anyone in the group. Others never see Splitwise. */
+  canConnect: boolean;
 };
 
 const nameKey = (name: string) => name.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -22,7 +24,7 @@ const configIds: Record<string, number> = Object.fromEntries(
 const valueOf = (to?: TipRecipient) => (to?.splitwiseId ? `sw:${to.splitwiseId}` : to?.playerId ? `player:${to.playerId}` : '');
 
 /** Finish dialog: optional tip out of the prize pool, to anyone in the Splitwise group. */
-export default function TipCard({ players, members, amount, to, onAmount, onTo, onConnect }: Props) {
+export default function TipCard({ players, members, amount, to, onAmount, onTo, onConnect, canConnect }: Props) {
   // The game's player who is this Splitwise member (config, then name match), so the tip shows on their result.
   const playerFor = (m: SplitwiseMember) =>
     players.find((p) => configIds[nameKey(p.name)] === m.id) ?? players.find((p) => guessMember(p.name, members ?? []) === m.id);
@@ -77,7 +79,7 @@ export default function TipCard({ players, members, amount, to, onAmount, onTo, 
         />
       </div>
       {!SPLITWISE_GROUP_ID && <div className="tiny muted tip-hint">No Splitwise group set, so nobody can get a tip.</div>}
-      {SPLITWISE_GROUP_ID > 0 && !members && splitwiseApiEnabled && (
+      {SPLITWISE_GROUP_ID > 0 && !members && splitwiseApiEnabled && canConnect && (
         <div className="tip-hint">
           <div className="tiny muted">Connect Splitwise on this phone to tip anyone in the group.</div>
           {/* Full-page login; comes back to this room's Finish dialog. The tip and amounts are saved in the room. */}
