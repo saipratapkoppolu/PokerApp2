@@ -115,6 +115,8 @@ export function eventText(type: RoomEventType, actor: string, meta?: Record<stri
       return `${actor} updated the blind structure.`;
     case 'buyins_closed':
       return `${actor} closed buy-ins.`;
+    case 'buyins_reopened':
+      return `${actor} reopened buy-ins.`;
     case 'title_changed':
       return `${actor} renamed the tournament to "${meta?.title}".`;
     case 'fresh_room_created':

@@ -222,7 +222,10 @@ export default function App() {
       const snapshot = await get(ref(db, `users/${firebaseUser.uid}`));
 
       if (snapshot.exists()) {
-        setIdentity(snapshot.val() as UserIdentity);
+        const profile = snapshot.val() as UserProfile & { email?: string };
+        // Profiles written by older versions included the email: remove it from your own profile.
+        if (profile.email !== undefined) await update(ref(db, `users/${firebaseUser.uid}`), { email: null });
+        setIdentity({ uid: firebaseUser.uid, displayName: profile.displayName });
       } else {
         const displayName =
           firebaseUser.displayName ||
@@ -231,7 +234,6 @@ export default function App() {
 
         const fallbackProfile: UserProfile = {
           uid: firebaseUser.uid,
-          email: firebaseUser.email ?? '',
           displayName,
           displayNameKey: makeNameKey(displayName),
           createdAt: Date.now(),
@@ -242,7 +244,6 @@ export default function App() {
 
         setIdentity({
           uid: fallbackProfile.uid,
-          email: fallbackProfile.email,
           displayName: fallbackProfile.displayName,
         });
         }
@@ -606,7 +607,6 @@ export default function App() {
 
       const profile: UserProfile = {
         uid: cred.user.uid,
-        email,
         displayName,
         displayNameKey,
         createdAt: Date.now(),
@@ -730,7 +730,8 @@ export default function App() {
       const users = existing.users ?? [];
       const hasUser = users.some((u) => u.uid === identity.uid);
       if (!hasUser) {
-        const nextUsers = [...users, identity];
+        // Rooms are public: keep only uid and name (older entries may still carry an email).
+        const nextUsers = [...users, identity].map(({ uid, displayName }) => ({ uid, displayName }));
         const joinEvent = createEvent('user_joined', identity);
         await update(ref(db, `rooms/${normalized}`), {
           users: nextUsers,
@@ -1112,20 +1113,36 @@ setAdminMessage(lastUndo.label.startsWith('Undo close buy-ins') ? 'Buy-ins reope
 async function closeBuyins() {
   if (!room || !isAdminUnlocked || !identity || buyinsClosedFlag) return;
   const event = createEvent('buyins_closed', identity);
-
-  const snapshot: UndoState = {
-    players: players.map((p) => ({ ...p })),
-    eventIdsToRemove: [event.id],
-    label: 'Undo close buy-ins',
-    settings: { buyinsClosed: false },
-  };
-
+  // Not on the undo stack: Undo is for knockouts. Reopening has its own PIN-protected button.
   await patchRoom({
     settings: { ...room.settings, buyinsClosed: true },
     events: [event, ...events],
   });
-  setUndoStack((prev) => [...prev, snapshot].slice(-10));
   setAdminMessage('Buy-ins are now closed for this tournament.');
+}
+
+/** Reopen buy-ins after the admin re-enters the room PIN (same check as unlocking admin). */
+async function reopenBuyins() {
+  if (!room || !isAdminUnlocked || !identity || !buyinsClosedFlag) return;
+  const entered = window.prompt('Enter the admin PIN to reopen buy-ins.');
+  if (entered === null) return;
+  let storedPin = '';
+  try {
+    storedPin = (await get(ref(db, `roomPins/${roomId}`))).val() ?? '';
+  } catch (error) {
+    console.error('PIN read failed', error);
+  }
+  if (!storedPin) storedPin = adminPin;
+  if (!storedPin || entered.trim() !== storedPin) {
+    setAdminMessage('Incorrect PIN. Buy-ins are still closed.');
+    return;
+  }
+  const event = createEvent('buyins_reopened', identity);
+  await patchRoom({
+    settings: { ...room.settings, buyinsClosed: false },
+    events: [event, ...events],
+  });
+  setAdminMessage('Buy-ins reopened.');
 }
 
 
@@ -1770,6 +1787,11 @@ async function closeBuyins() {
       {isAdminUnlocked && phase === 'game' && !buyinsClosed && (
         <button className="link-btn" onClick={() => closeBuyins()}>
           Close now
+        </button>
+      )}
+      {isAdminUnlocked && phase === 'game' && buyinsClosed && (
+        <button className="link-btn" onClick={() => reopenBuyins()}>
+          Reopen
         </button>
       )}
     </div>

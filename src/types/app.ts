@@ -42,6 +42,7 @@ export type RoomEventType =
   | 'tournament_finished'
   | 'fresh_room_created'
   | 'buyins_closed'
+  | 'buyins_reopened'
   | 'clock_started'
   | 'clock_paused'
   | 'level_changed'
@@ -82,18 +83,18 @@ export type RoomEvent = {
   meta?: Record<string, unknown>;
 };
 
+/** users/{uid}: readable by every signed-in user, so no email (that stays in Firebase Auth). */
 export type UserProfile = {
   uid: string;
-  email: string;
   displayName: string;
   displayNameKey: string;
   createdAt: number;
   active: boolean;
 };
 
+/** Who did something. Written into rooms, which anyone with the room code can read: no email. */
 export type UserIdentity = {
   uid: string;
-  email: string;
   displayName: string;
 };
 
