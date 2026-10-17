@@ -6,8 +6,9 @@
  *   /callback  → swaps Splitwise's one-time code for the user's token (needs the app secret,
  *                which is why this can't live in the website), encrypts the token into an
  *                opaque "session" and sends the browser back to the app with it
- *   /api/...   → forwards the app's calls to Splitwise with the user's token. Only the three
- *                calls the app needs are allowed; nothing can be read or deleted beyond that.
+ *   /api/...   → forwards the app's calls to Splitwise with the user's token. Only the calls the app
+ *                needs are allowed: the user, their groups, adding the game's expense, and deleting it
+ *                again (Undo) — and only an expense in the configured group can be deleted.
  *
  * The browser only ever holds the encrypted session, which is useless without this worker.
  */
@@ -106,11 +107,14 @@ async function api(request, url, env) {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
 
   const name = url.pathname.slice('/api/'.length);
-  if (!API_ALLOWED.has(`${request.method} ${name}`)) return json({ error: 'Not allowed' }, 403, cors);
+  const deleteId = request.method === 'POST' ? name.match(/^delete_expense\/(\d+)$/)?.[1] : undefined;
+  if (!deleteId && !API_ALLOWED.has(`${request.method} ${name}`)) return json({ error: 'Not allowed' }, 403, cors);
 
   const session = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
   const token = session && (await unseal(session, env));
   if (!token) return json({ error: 'Not connected to Splitwise' }, 401, cors);
+
+  if (deleteId) return await deleteExpense(deleteId, token, env, cors);
 
   let body;
   if (request.method === 'POST') {
@@ -125,6 +129,24 @@ async function api(request, url, env) {
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body,
   });
+  return new Response(res.body, {
+    status: res.status,
+    headers: { ...cors, 'Content-Type': res.headers.get('Content-Type') || 'application/json' },
+  });
+}
+
+/** Undo of "Add to Splitwise": deletes the game's expense, but only one in the configured group. */
+async function deleteExpense(id, token, env, cors) {
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  if (env.GROUP_ID) {
+    const res = await fetch(new URL(`/api/v3.0/get_expense/${id}`, base(env)), { headers });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return json({ error: 'Expense not found' }, res.status, cors);
+    if (String(data.expense?.group_id ?? '') !== String(env.GROUP_ID)) {
+      return json({ error: 'Wrong Splitwise group' }, 403, cors);
+    }
+  }
+  const res = await fetch(new URL(`/api/v3.0/delete_expense/${id}`, base(env)), { method: 'POST', headers });
   return new Response(res.body, {
     status: res.status,
     headers: { ...cors, 'Content-Type': res.headers.get('Content-Type') || 'application/json' },

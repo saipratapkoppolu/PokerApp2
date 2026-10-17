@@ -7,6 +7,7 @@ import {
   clearSplitwiseSession,
   connectSplitwise,
   createSplitwiseExpense,
+  deleteSplitwiseExpense,
   fetchSplitwiseGroups,
   fetchSplitwiseMe,
   getSplitwiseSession,
@@ -28,6 +29,8 @@ type Props = {
   canAdd?: boolean;
   added?: Added;
   onAdded?: (info: { expenseId: number; groupName: string }) => void | Promise<void>;
+  /** After Undo deleted the expense: clear it from the room so the game can be added again. */
+  onRemoved?: () => void | Promise<void>;
 };
 
 const GROUP_KEY = 'poker.splitwiseGroup';
@@ -58,7 +61,7 @@ const configIds: Record<string, number> = Object.fromEntries(
 );
 
 /** Results-page card: spent / earned / net per player, settle-up list, copy/share for Splitwise. */
-export default function SplitwiseCard({ title, rows, onMessage, canAdd, added, onAdded }: Props) {
+export default function SplitwiseCard({ title, rows, onMessage, canAdd, added, onAdded, onRemoved }: Props) {
   const [groups, setGroups] = useState<SplitwiseGroup[] | null>(null);
   const [groupId, setGroupId] = useState<number>(0);
   const [memberFor, setMemberFor] = useState<Record<string, number>>({});
@@ -70,6 +73,25 @@ export default function SplitwiseCard({ title, rows, onMessage, canAdd, added, o
   const [inGroup, setInGroup] = useState<boolean | null>(null);
   const group = groups?.find((g) => g.id === groupId);
   const showAdd = splitwiseApiEnabled && canAdd && !added;
+  // Undo of the add: asked first, since it deletes the expense in Splitwise for everyone.
+  const [confirmUndo, setConfirmUndo] = useState(false);
+  const canUndo = splitwiseApiEnabled && canAdd && !!added && !!getSplitwiseSession();
+
+  async function undoAdd() {
+    if (!added) return;
+    setBusy(true);
+    setError('');
+    try {
+      await deleteSplitwiseExpense(added.expenseId);
+      await onRemoved?.();
+      setConfirmUndo(false);
+      onMessage('Removed from Splitwise.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove it from Splitwise.');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!showAdd) return;
@@ -315,6 +337,22 @@ export default function SplitwiseCard({ title, rows, onMessage, canAdd, added, o
       {added ? (
         <div className="note-box splitwise-added">
           ✓ Added to Splitwise ({added.groupName}) by {added.addedBy}
+          {canUndo &&
+            (confirmUndo ? (
+              <div className="splitwise-undo">
+                <span>Delete the expense in Splitwise?</span>
+                <button className="btn btn-dark" onClick={() => setConfirmUndo(false)} disabled={busy}>
+                  Keep
+                </button>
+                <button className="btn btn-red" onClick={undoAdd} disabled={busy}>
+                  {busy ? 'Removing…' : 'Delete'}
+                </button>
+              </div>
+            ) : (
+              <button className="link-btn" onClick={() => setConfirmUndo(true)}>
+                Undo
+              </button>
+            ))}
         </div>
       ) : (
         showAdd && renderAdd()

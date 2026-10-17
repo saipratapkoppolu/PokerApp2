@@ -2789,3 +2789,42 @@ button.standing-row:active {
   width: auto;
   max-width: 90%;
 }
+
+/* Kick out: the link under "Who is out?" and the tag on a kicked player in the standings. */
+.kick-link {
+  display: block;
+  margin: 14px auto 0;
+}
+
+.kicked-tag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+
+/* Undo of "Added to Splitwise": asks before deleting the expense. */
+.splitwise-added {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.splitwise-undo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.splitwise-undo span {
+  flex: 1 1 100%;
+  font-weight: 600;
+}

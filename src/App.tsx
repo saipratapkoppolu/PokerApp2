@@ -23,6 +23,7 @@ import {
   Trophy,
   Undo2,
   Unlock,
+  UserMinus,
   UserPlus,
   Users,
   X,
@@ -182,6 +183,9 @@ export default function App() {
   const [setupPinError, setSetupPinError] = useState('');
 
   const [elimModal, setElimModal] = useState(false);
+  /** Kick out: the dialog is open, and the player picked in it ('' = none yet). */
+  const [kickModal, setKickModal] = useState(false);
+  const [kickId, setKickId] = useState('');
   // Knockout form steps: -1 = who's out, 0..n-1 = who took busted player n's bounty, 'hand' = finish.
   const [koStep, setKoStep] = useState<number | 'hand'>(-1);
   const [isRecordingKnockout, setIsRecordingKnockout] = useState(false);
@@ -1020,6 +1024,33 @@ export default function App() {
     } finally {
       setIsRecordingKnockout(false);
     }
+  }
+
+  function openKickModal(playerId?: string) {
+    if (!isAdminUnlocked) return;
+    setKickId(playerId ?? '');
+    setKickModal(true);
+  }
+
+  /** The admin takes a player out of the running tournament: out like a bust and marked kicked; their buy-ins
+   * stay in the prize pool, their bounty balance stays, and they can't buy in again. Undo brings them back.
+   * Same as Game.kickPlayer in the iOS app. */
+  async function kickPlayer() {
+    if (!isAdminUnlocked || !room || !identity || phase !== 'game') return;
+    const target = players.find((p) => p.id === kickId && p.active);
+    if (!target) return;
+    const event = createEvent('player_kicked', identity, { playerName: target.name, playerId: target.id });
+    const snapshot: UndoState = {
+      players: players.map((p) => ({ ...p })),
+      eventIdsToRemove: [event.id],
+      label: `Undo kick: ${target.name}`,
+    };
+    await patchRoom({
+      players: players.map((p) => (p.id === target.id ? { ...p, active: false, kicked: true } : p)),
+      events: [event, ...events],
+    });
+    setUndoStack((prev) => [...prev, snapshot].slice(-10));
+    setKickModal(false);
   }
 
   async function undoLastAction() {
@@ -1971,7 +2002,10 @@ async function reopenBuyins() {
                   {players.map((p) => (
                     <div className="player-row" key={p.id}>
                       <span className={`suit ${p.suit === '♥' || p.suit === '♦' ? 'red' : ''}`}>{p.suit}</span>
-                      <span className="player-name">{p.name}</span>
+                      <span className="player-name">
+                        {p.name}
+                        {p.kicked && <span className="kicked-tag">kicked</span>}
+                      </span>
                       {isAdminUnlocked && (
                         <button className="icon-btn" onClick={() => removePlayer(p.id)} aria-label={`Remove ${p.name}`}>
                           <X size={18} />
@@ -2075,7 +2109,10 @@ async function reopenBuyins() {
                   const content = (
                     <>
                       <span className={`suit ${p.suit === '♥' || p.suit === '♦' ? 'red' : ''}`}>{p.suit}</span>
-                      <span className="player-name">{p.name}</span>
+                      <span className="player-name">
+                        {p.name}
+                        {p.kicked && <span className="kicked-tag">kicked</span>}
+                      </span>
                       <span className="col-num">
                         €{fmt(paid)}
                         {p.buyins > 1 && <span className="rebuy-tag">×{p.buyins}</span>}
@@ -2210,12 +2247,13 @@ async function reopenBuyins() {
                 rows={splitRows}
                 onMessage={setAdminMessage}
                 canAdd={isAdminUnlocked}
-                added={room?.splitwise}
+                added={room?.splitwise ?? undefined}
                 onAdded={({ expenseId, groupName }) =>
                   patchRoom({
                     splitwise: { expenseId, groupName, addedBy: identity?.displayName ?? 'admin', addedAt: Date.now() },
                   })
                 }
+                onRemoved={() => patchRoom({ splitwise: null })}
               />
             )}
 
@@ -2549,6 +2587,16 @@ async function reopenBuyins() {
                         </button>
                       ))}
                     </div>
+                    <button
+                      type="button"
+                      className="link-btn kick-link"
+                      onClick={() => {
+                        setElimModal(false);
+                        openKickModal(selectedEliminatedIds.length === 1 ? selectedEliminatedIds[0] : undefined);
+                      }}
+                    >
+                      Not a bust? Kick a player out instead
+                    </button>
                   </>
                 )}
 
@@ -2696,6 +2744,44 @@ async function reopenBuyins() {
           </div>
         );
       })()}
+
+      {phase === 'game' && kickModal && isAdminUnlocked && (
+        <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && setKickModal(false)}>
+          <div className="modal-card">
+            <div className="modal-head">
+              <div className="modal-title">Kick a player out</div>
+              <button className="icon-btn" onClick={() => setKickModal(false)} aria-label="Close">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="tiny muted step-hint">
+                Their buy-ins stay in the prize pool and they can't buy in again. Undo brings them back.
+              </div>
+              <div className="pick-grid">
+                {activePlayers.map((p) => (
+                  <button
+                    type="button"
+                    key={`kick-${p.id}`}
+                    className={`pick-btn out ${kickId === p.id ? 'selected' : ''}`}
+                    onClick={() => setKickId(p.id)}
+                  >
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-dark" onClick={() => setKickModal(false)}>
+                Cancel
+              </button>
+              <button className="btn btn-red" onClick={kickPlayer} disabled={!activePlayers.some((p) => p.id === kickId)}>
+                <UserMinus size={18} /> Kick out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {phase === 'game' && showPayoutModal && activePlayers.length <= FINISH_ALLOWED_AT && isAdminUnlocked && (
         <div className="modal-backdrop" onClick={(e) => e.target === e.currentTarget && setShowPayoutModal(false)}>

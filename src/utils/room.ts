@@ -95,6 +95,8 @@ export function eventText(type: RoomEventType, actor: string, meta?: Record<stri
       return `${actor} added ${meta?.playerName}.`;
     case 'player_removed':
       return `${actor} removed ${meta?.playerName}.`;
+    case 'player_kicked':
+      return `${actor} kicked ${meta?.playerName} out of the tournament.`;
     case 'game_started':
       return `${actor} started the tournament.`;
     case 'knockout_recorded':

@@ -278,3 +278,13 @@ export async function createSplitwiseExpense(opts: {
     throw new Error(`Splitwise: ${errors.join(', ') || 'expense was not created'}`);
   return data.expenses[0].id;
 }
+
+/** Undo of "Add to Splitwise": deletes the game's expense (the worker allows only one in the configured group). */
+export async function deleteSplitwiseExpense(expenseId: number): Promise<void> {
+  const data = await api<{ success?: boolean; errors?: Record<string, string[] | string> }>(
+    `delete_expense/${expenseId}`,
+    { method: 'POST' },
+  );
+  const errors = Object.values(data.errors ?? {}).flat();
+  if (!data.success || errors.length) throw new Error(`Splitwise: ${errors.join(', ') || 'expense was not deleted'}`);
+}

@@ -2,7 +2,8 @@
 
 Lets each admin log in with their own Splitwise account and add the game as an expense.
 It holds the Splitwise **app secret** (which can't be in the website) and forwards only
-three calls: `get_current_user`, `get_groups`, `create_expense`. Free Cloudflare plan is plenty.
+four calls: `get_current_user`, `get_groups`, `create_expense`, and `delete_expense` (Undo — only for an
+expense in the configured group). Free Cloudflare plan is plenty.
 
 ## One-time setup
 

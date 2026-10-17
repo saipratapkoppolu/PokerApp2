@@ -5,6 +5,8 @@ export type Player = {
   bountyBalance: number;
   active: boolean;
   suit: string;
+  /** The admin took them out of a running tournament: out like a bust, no buy-in again. Absent = not kicked. */
+  kicked?: boolean;
 };
 
 export type PayoutKey = 'first' | 'second' | 'third' | 'fourth' | 'fifth' | 'sixth';
@@ -35,6 +37,7 @@ export type RoomEventType =
   | 'admin_pin_changed'
   | 'player_added'
   | 'player_removed'
+  | 'player_kicked'
   | 'game_started'
   | 'knockout_recorded'
   | 'undo_action'
@@ -157,7 +160,8 @@ export type RoomState = {
   tipTo?: TipRecipient;
 };
   /** Set once the results were added to Splitwise, so nobody adds them twice. */
-  splitwise?: { expenseId: number; groupName: string; addedBy: string; addedAt: number };
+  /** The game's Splitwise expense; null clears it (Undo). */
+  splitwise?: { expenseId: number; groupName: string; addedBy: string; addedAt: number } | null;
 };
 
 export type TipRecipient = { name: string; splitwiseId?: number; playerId?: string };
