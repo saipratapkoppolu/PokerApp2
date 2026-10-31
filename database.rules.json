@@ -43,6 +43,37 @@
         ".read": "auth != null && auth.uid === $uid",
         ".write": false
       }
+    },
+    "groups": {
+      "$groupId": {
+        ".read": "auth != null && data.child('members').child(auth.uid).exists()",
+        ".write": "auth != null && auth.provider != 'anonymous' && (data.child('admins').child(auth.uid).val() === true || (!data.exists() && newData.child('admins').child(auth.uid).val() === true && newData.child('members').child(auth.uid).child('uid').val() === auth.uid))",
+        ".validate": "newData.hasChildren(['name', 'createdAt', 'members', 'admins'])",
+        "name": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 40"
+        },
+        "members": {
+          "$memberId": {
+            ".write": "auth != null && auth.uid === $memberId && !newData.exists()",
+            ".validate": "newData.hasChildren(['name', 'addedAt']) && newData.child('name').isString() && newData.child('name').val().length <= 40 && (!newData.hasChild('uid') || newData.child('uid').val() === $memberId)"
+          }
+        },
+        "admins": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && !newData.exists()",
+            ".validate": "newData.val() === true && newData.parent().parent().child('members').child($uid).child('uid').val() === $uid"
+          }
+        }
+      }
+    },
+    "userGroups": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$groupId": {
+          ".write": "auth != null && ((auth.uid === $uid && !newData.exists()) || root.child('groups').child($groupId).child('admins').child(auth.uid).val() === true || newData.parent().parent().parent().child('groups').child($groupId).child('admins').child(auth.uid).val() === true)",
+          ".validate": "newData.val() === true"
+        }
+      }
     }
   }
 }

@@ -71,6 +71,9 @@ import TipCard from './components/TipCard';
 import { SPLITWISE_GROUP_ID } from './config/splitwise';
 import { useAlertsPreference, useSoundPaused, useTournamentClock } from './hooks/useTournamentClock';
 import { useLiveRooms } from './hooks/useLiveRooms';
+import { useGroups } from './hooks/useGroups';
+import GroupsPage from './components/GroupsPage';
+import { groupMembers } from './utils/groups';
 import { useSplitwiseAccess } from './hooks/useSplitwiseAccess';
 import { useSplitwiseMembers } from './hooks/useSplitwiseMembers';
 import { blindsLabel, chips, computeClock, formatClock, levelIndexForNumber, normalizeLevels, rememberMinutes } from './utils/blinds';
@@ -167,6 +170,10 @@ export default function App() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [registeredUsers, setRegisteredUsers] = useState<UserProfile[]>([]);
   const [selectedRegisteredUserIds, setSelectedRegisteredUserIds] = useState<string[]>([]);
+  const groups = useGroups(identity?.uid);
+  // Game setup: the group picked to add players from, and the member names ticked in it.
+  const [setupGroupId, setSetupGroupId] = useState('');
+  const [selectedGroupNames, setSelectedGroupNames] = useState<string[]>([]);
 
   const [nameInput, setNameInput] = useState('');
 
@@ -757,25 +764,34 @@ export default function App() {
   }
 
   async function addSelectedRegisteredPlayers() {
-    if (!room || !isAdminUnlocked || !identity) return;
+    if (await addPlayersByName(selectedRegisteredUsers.map((user) => user.displayName))) setSelectedRegisteredUserIds([]);
+  }
+
+  async function addSelectedGroupPlayers() {
+    if (await addPlayersByName(selectedGroupNames)) setSelectedGroupNames([]);
+  }
+
+  /** Adds these names as players (skipping ones already in). Returns true when players were added. */
+  async function addPlayersByName(names: string[]): Promise<boolean> {
+    if (!room || !isAdminUnlocked || !identity) return false;
     if (players.length >= MAX_PLAYERS) {
       setAdminMessage(`Maximum ${MAX_PLAYERS} players allowed in one tournament room.`);
-      return;
+      return false;
     }
 
-    const namesToAdd = selectedRegisteredUsers
-      .map((user) => normalizeName(user.displayName))
+    const namesToAdd = names
+      .map((name) => normalizeName(name))
       .filter(Boolean)
-      .filter((name) => !playerExists(name));
+      .filter((name, i, all) => !playerExists(name) && all.findIndex((n) => sameName(n, name)) === i);
 
     const slotsLeft = MAX_PLAYERS - players.length;
     if (namesToAdd.length > slotsLeft) {
       setAdminMessage(`Only ${slotsLeft} more player${slotsLeft === 1 ? '' : 's'} can be added.`);
-      return;
+      return false;
     }
     if (namesToAdd.length === 0) {
-      setAdminMessage('No new selected registered players to add.');
-      return;
+      setAdminMessage('No new selected players to add.');
+      return false;
     }
 
     const newPlayers: Player[] = namesToAdd.map((name, index) => ({
@@ -788,8 +804,8 @@ export default function App() {
     }));
     const nextEvents = namesToAdd.map((name) => createEvent('player_added', identity, { playerName: name }));
     await patchRoom({ players: [...players, ...newPlayers], events: [...nextEvents, ...events] });
-    setSelectedRegisteredUserIds([]);
     setAdminMessage('');
+    return true;
   }
 
   async function addPlayer() {
@@ -1731,15 +1747,20 @@ async function reopenBuyins() {
         </header>
         <main className="page">
           <div className="segmented" style={{ marginBottom: 14 }}>
-            <button className={page !== 'history' ? 'active' : ''} onClick={() => setPage('home')}>
+            <button className={page !== 'history' && page !== 'groups' ? 'active' : ''} onClick={() => setPage('home')}>
               Play
+            </button>
+            <button className={page === 'groups' ? 'active' : ''} onClick={() => setPage('groups')}>
+              Groups
             </button>
             <button className={page === 'history' ? 'active' : ''} onClick={() => setPage('history')}>
               History
             </button>
           </div>
 
-          {page === 'history' ? (
+          {page === 'groups' ? (
+            <GroupsPage identity={identity} registeredUsers={registeredUsers} groups={groups} onNotice={setAdminMessage} />
+          ) : page === 'history' ? (
             <section className="card">
               <div className="section-head">
                 <div className="section-title">Tournament History</div>
@@ -1977,6 +1998,63 @@ async function reopenBuyins() {
                   )}
                 </>
               )}
+
+              {groups.length > 0 && (() => {
+                const group = groups.find((g) => g.id === setupGroupId) ?? (groups.length === 1 ? groups[0] : undefined);
+                return (
+                  <>
+                    <div className="sub-label">From a group</div>
+                    {groups.length > 1 && (
+                      <select
+                        value={group?.id ?? ''}
+                        onChange={(e) => {
+                          setSetupGroupId(e.target.value);
+                          setSelectedGroupNames([]);
+                        }}
+                        disabled={!isAdminUnlocked}
+                        style={{ marginBottom: 10 }}
+                      >
+                        <option value="">Pick a group</option>
+                        {groups.map((g) => (
+                          <option key={g.id} value={g.id}>
+                            {g.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {group && (
+                      <div className="chip-grid">
+                        {groupMembers(group).map((m) => {
+                          const selected = selectedGroupNames.includes(m.name);
+                          const already = playerExists(m.name);
+                          return (
+                            <button
+                              key={m.key}
+                              type="button"
+                              onClick={() => setSelectedGroupNames((prev) => (selected ? prev.filter((n) => n !== m.name) : [...prev, m.name]))}
+                              className={`select-chip ${selected ? 'selected' : ''}`}
+                              disabled={already || !isAdminUnlocked}
+                            >
+                              {already ? '✓ ' : selected ? '+ ' : ''}
+                              {m.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {selectedGroupNames.length > 0 && (
+                      <div className="btn-pair" style={{ marginTop: 10 }}>
+                        <button className="btn btn-ghost" onClick={() => setSelectedGroupNames([])}>
+                          Clear
+                        </button>
+                        <button className="btn btn-green" onClick={addSelectedGroupPlayers} disabled={!isAdminUnlocked || players.length >= MAX_PLAYERS}>
+                          <UserPlus size={16} /> Add {selectedGroupNames.length}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
 
               <div className="sub-label">Guest player</div>
               <form

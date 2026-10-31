@@ -120,12 +120,21 @@ Existing lint errors (`any` in auth handlers) predate this work.
   start / creation) is deleted with its `roomPins/{id}` and `history/{id}` in one multi-path update. Also removes
   history rows older than 30 days whose room is gone. Never deletes the room open on that device or rooms with no
   timestamps. No confirmation — deletions are permanent.
+- **Groups** (`src/utils/groups.ts`, `useGroups`, `GroupsPage`; home tab Play / Groups / History): like WhatsApp
+  groups. `groups/{id} = { name, createdAt, createdBy, members, admins }` — account members keyed by uid
+  (`{ name, uid, addedAt }`), people without an account keyed `n_<id>` (`{ name, addedAt }`); `admins/{uid} = true`
+  (accounts only). `userGroups/{uid}/{groupId} = true` lists each account's groups; every change writes both in one
+  multi-path update. Creator is the first admin; admins add accounts or names, remove members, make/remove admins,
+  rename, delete. Anyone can leave, except the only admin while others remain; the last member leaving deletes the group.
+  Game setup → Players → "From a group" adds ticked members as players (by name, same dedupe + 12-player cap).
 - Up to **12 players** (`MAX_PLAYERS`). Finish allowed at ≤ 5 players left.
 
 ## Database rules (`database.rules.json`, published)
 
 `rooms` read: everyone; write: non-anonymous auth; `.indexOn: phase`. `roomPins/$id` read/write:
 non-anonymous auth. `users` read auth, write own uid. `history` read/write auth.
+`groups/$id` read: members; write: its admins (create: you as admin + member); members/admins entries can be
+self-deleted (leave). `userGroups/$uid` read own; entry write: the group's admin, or yourself removing it.
 Anonymous sign-in is **not** enabled in the project (the app tolerates this).
 
 ## User preferences (from the owner)

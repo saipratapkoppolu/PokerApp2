@@ -13,7 +13,7 @@ export type PayoutKey = 'first' | 'second' | 'third' | 'fourth' | 'fifth' | 'six
 /** Number of paid places (1–6). */
 export type PayoutMode = number;
 export type Phase = 'setup' | 'game' | 'end';
-export type AppPage = 'auth' | 'home' | 'setup' | 'live' | 'history' | 'completed';
+export type AppPage = 'auth' | 'home' | 'setup' | 'live' | 'history' | 'groups' | 'completed';
 export type AuthMode = 'login' | 'register' | 'reset';
 
 export type WinningHand =
@@ -187,4 +187,24 @@ export type LiveRoomSummary = {
   clock: ClockState | null;
   levels: BlindLevel[];
   updatedAt: number;
+};
+
+/**
+ * A group of players (like a WhatsApp group). Account members are keyed by their uid; name-only
+ * members (no account) by `n_<id>`. Only account members can be admins.
+ */
+export type GroupMember = {
+  name: string;
+  /** Set for app accounts (equals the member's key). */
+  uid?: string;
+  addedAt: number;
+};
+
+export type PlayerGroup = {
+  id: string;
+  name: string;
+  createdAt: number;
+  createdBy: UserIdentity;
+  members: Record<string, GroupMember>;
+  admins: Record<string, true>;
 };
