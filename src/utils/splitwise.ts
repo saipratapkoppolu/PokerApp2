@@ -187,12 +187,41 @@ type ApiUser = { id: number; first_name?: string | null; last_name?: string | nu
 
 const memberName = (u: ApiUser) => [u.first_name, u.last_name].filter(Boolean).join(' ').trim() || `User ${u.id}`;
 
+/**
+ * The reason behind a failed call, in words: the worker's `error`, Splitwise's own `error` / `errors`
+ * (a string, a list, or `{ base: [...] }`), or the plain-text reply (e.g. "Origin not allowed").
+ */
+function failureText(body: unknown, raw: string): string {
+  const parts: string[] = [];
+  const add = (v: unknown) => {
+    if (typeof v === 'string') parts.push(v);
+    else if (Array.isArray(v)) v.forEach(add);
+    else if (v && typeof v === 'object') Object.values(v).forEach(add);
+  };
+  if (body && typeof body === 'object') {
+    const b = body as { error?: unknown; errors?: unknown; message?: unknown };
+    add(b.error);
+    add(b.errors);
+    add(b.message);
+  }
+  const text = parts.map((p) => p.trim()).filter(Boolean).join(', ');
+  if (text) return text;
+  // Not JSON: show the reply itself (short, without HTML tags).
+  return raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160);
+}
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${WORKER_URL}/api/${path}`, {
     ...init,
     headers: { ...(init?.headers ?? {}), Authorization: `Bearer ${getSplitwiseSession()}` },
   });
-  const body = await res.json().catch(() => null);
+  const raw = await res.text().catch(() => '');
+  let body: unknown = null;
+  try {
+    body = raw ? JSON.parse(raw) : null;
+  } catch {
+    body = null;
+  }
   if (res.status === 401) {
     clearSplitwiseSession();
     const why = (body as { error?: string } | null)?.error;
@@ -202,8 +231,10 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
         : 'Splitwise did not accept the login — connect again.',
     );
   }
-  if (!res.ok || !body)
-    throw new Error(`Splitwise: ${(body as { error?: string } | null)?.error ?? `HTTP ${res.status}`}`);
+  if (!res.ok || !body) {
+    const why = failureText(body, raw);
+    throw new Error(`Splitwise: ${why ? `${why} (HTTP ${res.status})` : `HTTP ${res.status}`}`);
+  }
   return body as T;
 }
 
