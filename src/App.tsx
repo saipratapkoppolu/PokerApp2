@@ -1815,7 +1815,15 @@ async function reopenBuyins() {
 
   const phaseLabel = phase === 'setup' ? 'Setup' : phase === 'game' ? 'Live' : 'Results';
   const lastUndo = undoStack.length > 0 ? undoStack[undoStack.length - 1] : null;
-  const standings = [...players].sort((a, b) => Number(b.active) - Number(a.active) || b.bountyBalance - a.bountyBalance);
+  // The live list is the players, not a ranking (chip counts aren't known until the end; the results page has
+  // the standings): still in, in the order they joined, then everyone out, the most recently busted first.
+  // Same as the iOS app.
+  const standings = sortedForEnd;
+  const ordinal = (n: number) => {
+    const tens = n % 100;
+    const suffix = tens >= 11 && tens <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] ?? 'th';
+    return `${n}${suffix}`;
+  };
   const lateRegLabel = lateRegIndex >= 0 ? levelName(lateRegIndex) : '';
   const playingLevels = levels.filter((l) => !l.isBreak);
 
@@ -2169,8 +2177,10 @@ async function reopenBuyins() {
 
             <section className="card compact-card">
               <div className="section-head">
-                <div className="section-title">Standings</div>
-                <span className="pill">{activePlayers.length} in</span>
+                <div className="section-title">Players</div>
+                <span className="pill">
+                  {activePlayers.length} of {players.length} left
+                </span>
               </div>
               {isAdminUnlocked && activePlayers.length > 1 && <div className="tiny muted hint">Tap a player who busted to record the knockout.</div>}
               <div className="standings-head">
@@ -2180,7 +2190,7 @@ async function reopenBuyins() {
                 <span>Bounty net</span>
               </div>
               <div className="standings-list">
-                {standings.map((p) => {
+                {standings.map((p, index) => {
                   const tappable = isAdminUnlocked && p.active && activePlayers.length > 1;
                   const paid = p.buyins * buyIn;
                   const signed = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}€${fmt(Math.abs(n))}`;
@@ -2189,7 +2199,11 @@ async function reopenBuyins() {
                       <span className={`suit ${p.suit === '♥' || p.suit === '♦' ? 'red' : ''}`}>{p.suit}</span>
                       <span className="player-name">
                         {p.name}
-                        {p.kicked && <span className="kicked-tag">kicked</span>}
+                        {p.kicked ? (
+                          <span className="kicked-tag">kicked</span>
+                        ) : (
+                          !p.active && <span className="kicked-tag">out · {ordinal(index + 1)}</span>
+                        )}
                       </span>
                       <span className="col-num">
                         €{fmt(paid)}
