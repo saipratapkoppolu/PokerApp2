@@ -123,6 +123,10 @@ function GroupDetail({
   const adminCount = Object.keys(group.admins ?? {}).length;
   // Accounts not in the group yet (by uid or by the same name).
   const candidates = registeredUsers.filter((u) => !group.members?.[u.uid] && !hasMemberNamed(group, u.displayName));
+  // Search by name; accounts already ticked stay shown.
+  const [search, setSearch] = useState('');
+  const query = search.trim().toLowerCase();
+  const shown = query ? candidates.filter((u) => picked.includes(u.uid) || u.displayName.toLowerCase().includes(query)) : candidates;
   const me = group.members?.[identity.uid];
   // The last admin can't leave while others remain: someone must be able to manage the group.
   const lastAdminWithOthers = amAdmin && adminCount === 1 && members.length > 1;
@@ -252,8 +256,17 @@ function GroupDetail({
               <div className="sub-label" style={{ marginTop: 0 }}>
                 App accounts
               </div>
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search accounts"
+                autoComplete="off"
+                style={{ marginBottom: 10 }}
+              />
+              {shown.length === 0 && <div className="tiny muted" style={{ marginBottom: 10 }}>No accounts match “{search.trim()}”.</div>}
               <div className="chip-grid">
-                {candidates.map((u) => {
+                {shown.map((u) => {
                   const selected = picked.includes(u.uid);
                   return (
                     <button
