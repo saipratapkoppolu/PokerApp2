@@ -2030,6 +2030,22 @@ async function reopenBuyins() {
                         ))}
                       </select>
                     )}
+                    {group && (() => {
+                      // Everyone in the group not playing yet: "Select all" ticks them (or clears them all).
+                      const available = groupMembers(group).map((m) => m.name).filter((n) => !playerExists(n));
+                      const allPicked = available.length > 0 && available.every((n) => selectedGroupNames.includes(n));
+                      return available.length > 0 && (
+                        <button
+                          type="button"
+                          className="link-btn"
+                          style={{ display: 'block', margin: '0 0 8px auto' }}
+                          disabled={!isAdminUnlocked}
+                          onClick={() => setSelectedGroupNames(allPicked ? [] : available)}
+                        >
+                          {allPicked ? 'Clear all' : 'Select all'}
+                        </button>
+                      );
+                    })()}
                     {group && (
                       <div className="chip-grid">
                         {groupMembers(group).map((m) => {
