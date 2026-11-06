@@ -74,6 +74,31 @@
           ".validate": "newData.val() === true"
         }
       }
+    },
+    "groupPolls": {
+      "$groupId": {
+        ".read": "auth != null && root.child('groups').child($groupId).child('members').child(auth.uid).exists()",
+        "$pollId": {
+          ".write": "auth != null && auth.provider != 'anonymous' && (root.child('groups').child($groupId).child('admins').child(auth.uid).val() === true || (root.child('groups').child($groupId).child('members').child(auth.uid).exists() && ((!data.exists() && newData.child('createdBy').child('uid').val() === auth.uid) || data.child('createdBy').child('uid').val() === auth.uid)))",
+          ".validate": "newData.hasChildren(['title', 'startsAt', 'createdAt', 'createdBy'])",
+          "title": {
+            ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 40"
+          },
+          "startsAt": {
+            ".validate": "newData.isNumber()"
+          },
+          "roomId": {
+            ".write": "auth != null && auth.provider != 'anonymous' && root.child('groups').child($groupId).child('members').child(auth.uid).exists() && !data.exists()",
+            ".validate": "newData.isString()"
+          },
+          "votes": {
+            "$memberKey": {
+              ".write": "auth != null && auth.uid === $memberKey && root.child('groups').child($groupId).child('members').child(auth.uid).exists() && data.parent().parent().exists()",
+              ".validate": "auth != null && auth.uid === $memberKey && newData.hasChildren(['answer', 'name', 'at']) && (newData.child('answer').val() === 'in' || newData.child('answer').val() === 'out' || newData.child('answer').val() === 'buyin') && root.child('groups').child($groupId).child('members').child($memberKey).exists()"
+            }
+          }
+        }
+      }
     }
   }
 }

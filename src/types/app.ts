@@ -215,3 +215,26 @@ export type PlayerGroup = {
   members: Record<string, GroupMember>;
   admins: Record<string, true>;
 };
+
+/** An answer to a "Who's in?" poll: in from the start, out, or buying in after the start. */
+export type PollAnswer = 'in' | 'out' | 'buyin';
+
+/** One member's answer, keyed by their group member key (uid, or n_… for a name without an account). */
+export type PollVote = {
+  answer: PollAnswer;
+  name: string;
+  at: number;
+};
+
+/** groupPolls/{groupId}/{pollId}: "Who's in?" for a game at a set time, posted by a group admin. */
+export type GamePoll = {
+  id: string;
+  groupId: string;
+  title: string;
+  startsAt: number;
+  createdAt: number;
+  createdBy: { uid: string; displayName: string };
+  votes?: Record<string, PollVote>;
+  /** The game started from it. */
+  roomId?: string;
+};

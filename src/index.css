@@ -2828,3 +2828,67 @@ button.standing-row:active {
   flex: 1 1 100%;
   font-weight: 600;
 }
+
+/* "Who's in?" polls */
+.poll { display: grid; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line, rgba(255, 255, 255, 0.08)); }
+.poll:last-child { border-bottom: none; }
+.poll-head { background: none; border: none; color: inherit; text-align: left; padding: 0; cursor: pointer; }
+.poll-title { font-weight: 600; }
+.poll-detail { display: grid; gap: 6px; }
+.poll-answer-for { margin-right: 10px; white-space: nowrap; }
+
+/* Date and time fields: Safari on iPhone collapses an empty-looking value and centres it; keep it readable. */
+input[type='date'],
+input[type='time'] {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  text-align: left;
+  cursor: pointer;
+}
+input[type='date']::-webkit-date-and-time-value,
+input[type='time']::-webkit-date-and-time-value {
+  text-align: left;
+}
+.poll-toggle { justify-self: start; }
+.poll-votes { display: grid; gap: 2px; }
+.poll-votes-label { font-size: 13px; font-weight: 600; }
+
+.poll-title { font-size: 17px; }
+.poll-options { display: grid; gap: 6px; }
+.poll-option {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--inset);
+  text-align: left;
+}
+/* The share of votes, as a faint fill behind the row. */
+.poll-option::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--share, 0%);
+  background: rgb(var(--accent-rgb) / 0.12);
+  transition: width 200ms ease;
+}
+.poll-option.chosen { border-color: var(--green); }
+.poll-option.chosen::before { background: rgb(var(--accent-rgb) / 0.22); }
+.poll-option-label,
+.poll-count { position: relative; display: inline-flex; align-items: center; gap: 6px; }
+.poll-count { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* A bottom sheet on every screen size (the poll's votes). */
+.modal-backdrop.bottom { align-items: flex-end; padding: 0; }
+.modal-backdrop.bottom .modal-card {
+  border-radius: 22px 22px 0 0;
+  border-bottom: 0;
+  animation: sheet-up 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.modal-backdrop.bottom .modal-body { display: grid; gap: 12px; }

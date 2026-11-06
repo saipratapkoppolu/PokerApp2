@@ -14,6 +14,25 @@ import {
   setGroupAdmin,
 } from '../utils/groups';
 import { normalizeName } from '../utils/format';
+import { createPoll } from '../utils/polls';
+
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/** Tonight (or tomorrow, if 8 PM has passed), as a date input's value. */
+function nextEveningDate() {
+  const d = new Date();
+  if (d.getHours() >= 20) d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** Opens the browser's date or time picker on tap, where it has one (not every browser opens it by itself). */
+function openPicker(e: React.MouseEvent<HTMLInputElement>) {
+  try {
+    e.currentTarget.showPicker?.();
+  } catch {
+    // Not allowed here: the field still takes typing.
+  }
+}
 
 type Props = {
   identity: UserIdentity;
@@ -115,6 +134,9 @@ function GroupDetail({
 }) {
   const [picked, setPicked] = useState<string[]>([]);
   const [guestName, setGuestName] = useState('');
+  const [pollTitle, setPollTitle] = useState('');
+  const [pollDate, setPollDate] = useState(nextEveningDate);
+  const [pollTime, setPollTime] = useState('20:00');
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState(group.name);
 
@@ -202,6 +224,29 @@ function GroupDetail({
           </div>
         )}
         <div className="tiny muted">Created by {group.createdBy?.displayName ?? 'someone'}</div>
+      </section>
+
+      <section className="card">
+        <div className="section-title">Ask who’s in</div>
+        <form
+          className="stack-list"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const startsAt = new Date(`${pollDate}T${pollTime}`).getTime();
+            if (!normalizeName(pollTitle) || !startsAt) return;
+            void run(() => createPoll(group.id, pollTitle, startsAt, identity), 'Poll posted.').then(() => setPollTitle(''));
+          }}
+        >
+          <input value={pollTitle} onChange={(e) => setPollTitle(e.target.value)} placeholder="Title, like Friday Poker" maxLength={40} autoComplete="off" />
+          <div className="input-row">
+            <input type="date" aria-label="Date" value={pollDate} onChange={(e) => setPollDate(e.target.value)} onClick={openPicker} />
+            <input type="time" aria-label="Time" value={pollTime} onChange={(e) => setPollTime(e.target.value)} onClick={openPicker} />
+          </div>
+          <button type="submit" className="btn btn-green" disabled={busy || !normalizeName(pollTitle)}>
+            Post
+          </button>
+        </form>
+        <div className="tiny muted">Everyone in the group sees it on Home and answers In, Buy-in or Out.</div>
       </section>
 
       <section className="card">

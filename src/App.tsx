@@ -49,6 +49,7 @@ import type {
   UserProfile,
   UserIdentity,
   HistoryItem,
+  GamePoll,
   RoomState,
   TipRecipient,
   UndoState,
@@ -73,6 +74,9 @@ import { useAlertsPreference, useSoundPaused, useTournamentClock } from './hooks
 import { useLiveRooms } from './hooks/useLiveRooms';
 import { useGroups } from './hooks/useGroups';
 import { historyItemFor, isVisibleHistory, recoverMissingHistory } from './utils/history';
+import { usePolls } from './hooks/usePolls';
+import PollsCard from './components/PollsCard';
+import { startGameFromPoll, startingPlayers } from './utils/polls';
 import GroupsPage from './components/GroupsPage';
 import { groupMembers } from './utils/groups';
 import { useSplitwiseAccess } from './hooks/useSplitwiseAccess';
@@ -172,6 +176,7 @@ export default function App() {
   const [registeredUsers, setRegisteredUsers] = useState<UserProfile[]>([]);
   const [selectedRegisteredUserIds, setSelectedRegisteredUserIds] = useState<string[]>([]);
   const groups = useGroups(identity?.uid);
+  const polls = usePolls(groups);
   // Only your games and your groups' games.
   const history = useMemo(
     () => (identity ? allHistory.filter((item) => isVisibleHistory(item, identity, groups)) : []),
@@ -714,6 +719,40 @@ export default function App() {
     const createdEvent = createEvent('room_created', identity);
     newRoom.events = [createdEvent];
     await set(ref(db, `rooms/${newRoomId}`), newRoom);
+    openCreatedRoom(newRoom);
+  }
+
+  /** A "Who's in?" poll's game: everyone in or buying in as players, saved with the poll's link to it. */
+  async function startPollGame(poll: GamePoll) {
+    if (!identity) return;
+    const names = startingPlayers(poll);
+    if (names.length > MAX_PLAYERS) {
+      setAdminMessage(`Only ${MAX_PLAYERS} players fit at a table. Mark some as Out first.`);
+      return;
+    }
+    const newRoom = defaultRoom(makeRoomId(), identity);
+    newRoom.title = poll.title;
+    newRoom.players = names.map((name, index) => ({
+      id: makeId(),
+      name,
+      buyins: 1,
+      bountyBalance: 0,
+      active: true,
+      suit: SUITS[index % SUITS.length],
+    }));
+    newRoom.events = [createEvent('room_created', identity)];
+    try {
+      await startGameFromPoll(poll, newRoom);
+      openCreatedRoom(newRoom);
+    } catch (error) {
+      console.error('start game from poll failed', error);
+      setAdminMessage('Could not start the game — check your connection and try again.');
+    }
+  }
+
+  /** Opens a room made here, with admin unlocked and the PIN to set up. */
+  function openCreatedRoom(newRoom: RoomState) {
+    const newRoomId = newRoom.roomId;
     window.location.hash = `room=${newRoomId}`;
     setRoomId(newRoomId);
     setRoom(newRoom);
@@ -1774,6 +1813,7 @@ async function reopenBuyins() {
             </section>
           ) : (
             <>
+              {identity && <PollsCard polls={polls} groups={groups} identity={identity} onStartGame={(poll) => void startPollGame(poll)} onNotice={setAdminMessage} />}
               {liveList}
               <section className="card">
                 <div className="section-title">New tournament</div>
