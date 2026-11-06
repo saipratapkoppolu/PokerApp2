@@ -113,6 +113,11 @@ export type HistoryItem = {
   bounty: number;
   payoutMode: PayoutMode;
   createdBy: string;
+  /** ISO currency code, written by the iOS app; missing means euro. */
+  currency?: string;
+  /** Who played, and the accounts in the room: the game shows only to them and their groups. */
+  players?: string[];
+  users?: string[];
 };
 
 export type RoomState = {
@@ -133,6 +138,8 @@ export type RoomState = {
     lateRegLevel?: number;
     /** What plays after the "Time is up" announcement. Default: 'song'. */
     levelSound?: LevelSound;
+    /** ISO currency code, set by the iOS app; missing means euro. */
+    currency?: string;
   };
   clock?: ClockState;
   users: UserIdentity[];

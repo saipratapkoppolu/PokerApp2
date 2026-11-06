@@ -72,6 +72,7 @@ import { SPLITWISE_GROUP_ID } from './config/splitwise';
 import { useAlertsPreference, useSoundPaused, useTournamentClock } from './hooks/useTournamentClock';
 import { useLiveRooms } from './hooks/useLiveRooms';
 import { useGroups } from './hooks/useGroups';
+import { historyItemFor, isVisibleHistory, recoverMissingHistory } from './utils/history';
 import GroupsPage from './components/GroupsPage';
 import { groupMembers } from './utils/groups';
 import { useSplitwiseAccess } from './hooks/useSplitwiseAccess';
@@ -167,10 +168,15 @@ export default function App() {
   const [roomId, setRoomId] = useState('');
   const [room, setRoom] = useState<RoomState | null>(null);
   const [loadingRoom, setLoadingRoom] = useState(false);
-  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [allHistory, setHistory] = useState<HistoryItem[]>([]);
   const [registeredUsers, setRegisteredUsers] = useState<UserProfile[]>([]);
   const [selectedRegisteredUserIds, setSelectedRegisteredUserIds] = useState<string[]>([]);
   const groups = useGroups(identity?.uid);
+  // Only your games and your groups' games.
+  const history = useMemo(
+    () => (identity ? allHistory.filter((item) => isVisibleHistory(item, identity, groups)) : []),
+    [allHistory, identity, groups]
+  );
   // Game setup: the group picked to add players from, and the member names ticked in it.
   const [setupGroupId, setSetupGroupId] = useState('');
   const [selectedGroupNames, setSelectedGroupNames] = useState<string[]>([]);
@@ -275,6 +281,7 @@ export default function App() {
       setHistory([]);
       return;
     }
+    let recovered = false;
     const unsubscribe = onValue(
       ref(db, 'history'),
       (snapshot) => {
@@ -282,6 +289,11 @@ export default function App() {
         const items = Object.values(value) as HistoryItem[];
         items.sort((a, b) => b.completedAt - a.completedAt);
         setHistory(items);
+        // Once per sign-in, online: write back rows lost when a game ended.
+        if (!recovered && navigator.onLine) {
+          recovered = true;
+          recoverMissingHistory(identity, items).catch((error) => console.error('history repair failed', error));
+        }
       },
       (error) => {
         console.error('history read failed', error);
@@ -569,10 +581,16 @@ export default function App() {
     setDisplayNameInput('');
   }
 
-  async function patchRoom(next: Partial<RoomState>) {
+  /** Partial room update. `alsoWrite` (root paths) is saved in the same write. */
+  async function patchRoom(next: Partial<RoomState>, alsoWrite?: Record<string, unknown>) {
     if (!roomId) return;
     try {
-      await update(ref(db, `rooms/${roomId}`), next as never);
+      if (alsoWrite) {
+        const paths = Object.fromEntries(Object.entries(next).map(([key, value]) => [`rooms/${roomId}/${key}`, value]));
+        await update(ref(db), { ...paths, ...alsoWrite });
+      } else {
+        await update(ref(db, `rooms/${roomId}`), next as never);
+      }
     } catch (error) {
       const code = (error as { code?: string })?.code ?? '';
       console.error('Room update failed', error);
@@ -1263,34 +1281,20 @@ async function reopenBuyins() {
     if (!isAdminUnlocked || !room || !identity || remaining !== 0 || missingFinisher || missingTipTo) return;
     const winner = players.find((p) => p.id === pickFor('first'))?.name ?? 'Unknown';
     const event = createEvent('tournament_finished', identity, { winner });
-    const historyItem: HistoryItem = {
-      roomId: room.roomId,
-      title: room.title,
-      createdAt: room.createdAt,
-      completedAt: Date.now(),
-      winner,
-      playerCount: room.players.length,
-      buyIn: room.settings.buyIn,
-      bounty: room.settings.bounty,
-      payoutMode: room.payouts.mode,
-      createdBy: room.createdBy.displayName,
+    const payouts = {
+      ...room.payouts,
+      // Only the paid places shown in the dialog are saved.
+      firstPlayerId: payoutMode > 0 ? pickFor('first') : '',
+      secondPlayerId: payoutMode > 1 ? pickFor('second') : '',
+      thirdPlayerId: payoutMode > 2 ? pickFor('third') : '',
+      fourthPlayerId: payoutMode > 3 ? pickFor('fourth') : '',
+      fifthPlayerId: payoutMode > 4 ? pickFor('fifth') : '',
+      sixthPlayerId: payoutMode > 5 ? pickFor('sixth') : '',
+      finalOrder: standingsFor(paidKeys.map(pickFor)).map((p) => p.id),
     };
-    await patchRoom({
-  phase: 'end',
-  payouts: {
-    ...room.payouts,
-    // Only the paid places shown in the dialog are saved.
-    firstPlayerId: payoutMode > 0 ? pickFor('first') : '',
-    secondPlayerId: payoutMode > 1 ? pickFor('second') : '',
-    thirdPlayerId: payoutMode > 2 ? pickFor('third') : '',
-    fourthPlayerId: payoutMode > 3 ? pickFor('fourth') : '',
-    fifthPlayerId: payoutMode > 4 ? pickFor('fifth') : '',
-    sixthPlayerId: payoutMode > 5 ? pickFor('sixth') : '',
-    finalOrder: standingsFor(paidKeys.map(pickFor)).map((p) => p.id),
-  },
-  events: [event, ...events],
-});
-    await set(ref(db, `history/${room.roomId}`), historyItem);
+    // The result and its history row in one write, so both are saved or neither.
+    const historyItem = historyItemFor(room, Date.now(), winner);
+    await patchRoom({ phase: 'end', payouts, events: [event, ...events] }, { [`history/${room.roomId}`]: historyItem });
     setShowPayoutModal(false);
     setUndoStack([]);
     setPage('completed');
