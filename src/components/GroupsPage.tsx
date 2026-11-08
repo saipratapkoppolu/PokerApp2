@@ -11,10 +11,14 @@ import {
   isGroupAdmin,
   removeGroupMember,
   renameGroup,
+  renameGroupMember,
   setGroupAdmin,
 } from '../utils/groups';
-import { normalizeName } from '../utils/format';
+import { normalizeName, sameName } from '../utils/format';
 import { createPoll } from '../utils/polls';
+import { useAvatars } from '../hooks/useAvatars';
+import { avatarColor } from '../utils/profile';
+import MemberProfileSheet from './MemberProfileSheet';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -141,7 +145,15 @@ function GroupDetail({
   const [title, setTitle] = useState(group.name);
 
   const amAdmin = isGroupAdmin(group, identity.uid);
-  const members = groupMembers(group);
+  // You first, then everyone else by name.
+  const members = [...groupMembers(group)].sort((a, b) => Number(b.key === identity.uid) - Number(a.key === identity.uid));
+  // The member whose profile is open (accounts only).
+  const [shownUid, setShownUid] = useState('');
+  const shownMember = members.find((m) => m.uid === shownUid);
+  const photos = useAvatars(
+    members.flatMap((m) => (m.uid ? [m.uid] : [])),
+    registeredUsers
+  );
   const adminCount = Object.keys(group.admins ?? {}).length;
   // Accounts not in the group yet (by uid or by the same name).
   const candidates = registeredUsers.filter((u) => !group.members?.[u.uid] && !hasMemberNamed(group, u.displayName));
@@ -154,6 +166,7 @@ function GroupDetail({
   const lastAdminWithOthers = amAdmin && adminCount === 1 && members.length > 1;
 
   const addPicked = () => {
+    // Accounts appear under their display name (the same in every group).
     const accounts = registeredUsers.filter((u) => picked.includes(u.uid)).map((u) => ({ uid: u.uid, name: u.displayName }));
     void run(async () => {
       await addGroupMembers(group.id, accounts, []);
@@ -260,7 +273,27 @@ function GroupDetail({
             const isMe = m.uid === identity.uid;
             return (
               <div className="player-row" key={m.key}>
-                <span className="player-name">
+                <span
+                  className={`member-avatar${m.uid ? ' tappable' : ''}`}
+                  onClick={m.uid ? () => setShownUid(m.uid!) : undefined}
+                  style={{ background: avatarColor(m.key) }}
+                  aria-hidden="true"
+                >
+                  {m.uid && photos[m.uid] ? (
+                    <img src={photos[m.uid]} alt="" />
+                  ) : (
+                    m.name
+                      .split(' ')
+                      .slice(0, 2)
+                      .map((w) => w[0] ?? '')
+                      .join('')
+                      .toUpperCase()
+                  )}
+                </span>
+                <span
+                  className={`player-name${m.uid ? ' tappable' : ''}`}
+                  onClick={m.uid ? () => setShownUid(m.uid!) : undefined}
+                >
                   {m.name}
                   {isMe && <span className="tiny muted"> (you)</span>}
                   {!m.uid && <span className="tiny muted"> · no account</span>}
@@ -269,6 +302,25 @@ function GroupDetail({
                   <span className="pill pill-green">
                     <Shield size={12} /> Admin
                   </span>
+                )}
+                {amAdmin && !isMe && !m.uid && (
+                  <button
+                    className="link-btn"
+                    disabled={busy}
+                    onClick={() => {
+                      const raw = window.prompt('New name', m.name);
+                      const name = normalizeName(raw ?? '');
+                      if (!name || name === m.name) return;
+                      if (members.some((o) => o.key !== m.key && sameName(o.name, name))) {
+                        window.alert(`${name} is already in the group.`);
+                        return;
+                      }
+                      // Only people without an account: accounts always show their display name.
+                      void run(() => renameGroupMember(m.key, name, [group.id]), `Renamed to ${name}.`);
+                    }}
+                  >
+                    Rename
+                  </button>
                 )}
                 {amAdmin && !isMe && m.uid && (
                   <button className="link-btn" disabled={busy} onClick={() => void run(() => setGroupAdmin(group.id, m.uid!, !isAdmin), isAdmin ? `${m.name} is no longer admin.` : `${m.name} is now admin.`)}>
@@ -373,6 +425,15 @@ function GroupDetail({
           )}
         </div>
       </section>
+      {shownMember?.uid && (
+        <MemberProfileSheet
+          uid={shownMember.uid}
+          name={shownMember.name}
+          profile={registeredUsers.find((u) => u.uid === shownMember.uid)}
+          photo={photos[shownMember.uid]}
+          onClose={() => setShownUid('')}
+        />
+      )}
     </>
   );
 }

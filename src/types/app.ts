@@ -13,7 +13,7 @@ export type PayoutKey = 'first' | 'second' | 'third' | 'fourth' | 'fifth' | 'six
 /** Number of paid places (1–6). */
 export type PayoutMode = number;
 export type Phase = 'setup' | 'game' | 'end';
-export type AppPage = 'auth' | 'home' | 'setup' | 'live' | 'history' | 'groups' | 'completed';
+export type AppPage = 'auth' | 'home' | 'setup' | 'live' | 'history' | 'groups' | 'completed' | 'profile' | 'settings';
 export type AuthMode = 'login' | 'register' | 'reset';
 
 export type WinningHand =
@@ -93,6 +93,10 @@ export type UserProfile = {
   displayNameKey: string;
   createdAt: number;
   active: boolean;
+  /** A short line under the name ("Free Fridays"). */
+  status?: string;
+  /** When the profile picture (avatars/{uid}) last changed. */
+  photoUpdatedAt?: number;
 };
 
 /** Who did something. Written into rooms, which anyone with the room code can read: no email. */
@@ -118,6 +122,8 @@ export type HistoryItem = {
   /** Who played, and the accounts in the room: the game shows only to them and their groups. */
   players?: string[];
   users?: string[];
+  /** The account that created (and ran) the game: whose groups see it. */
+  createdById?: string;
 };
 
 export type RoomState = {

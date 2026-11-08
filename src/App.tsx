@@ -76,9 +76,10 @@ import { useGroups } from './hooks/useGroups';
 import { historyItemFor, isVisibleHistory, recoverMissingHistory } from './utils/history';
 import { usePolls } from './hooks/usePolls';
 import PollsCard from './components/PollsCard';
+import ProfilePage from './components/ProfilePage';
 import { startGameFromPoll, startingPlayers } from './utils/polls';
 import GroupsPage from './components/GroupsPage';
-import { groupMembers } from './utils/groups';
+import { groupMembers, memberName, renameGroupMember } from './utils/groups';
 import { useSplitwiseAccess } from './hooks/useSplitwiseAccess';
 import { useSplitwiseMembers } from './hooks/useSplitwiseMembers';
 import { blindsLabel, chips, computeClock, formatClock, levelIndexForNumber, normalizeLevels, rememberMinutes } from './utils/blinds';
@@ -177,6 +178,30 @@ export default function App() {
   const [selectedRegisteredUserIds, setSelectedRegisteredUserIds] = useState<string[]>([]);
   const groups = useGroups(identity?.uid);
   const polls = usePolls(groups);
+  // Every account shows its current display name in every group: yours in all your groups, and, in groups you
+  // admin, everyone else's too (so a changed name shows without waiting for that person).
+  useEffect(() => {
+    if (!identity) return;
+    // Names come only from the live profiles (users/): this tab's own copy of your name can be out of date after
+    // you change it elsewhere, and would write the old name back.
+    const display = new Map(registeredUsers.map((u) => [u.uid, u.displayName]));
+    const renames = new Map<string, { name: string; groups: string[] }>();
+    for (const group of groups) {
+      const amAdmin = group.admins?.[identity.uid] === true;
+      for (const [key, member] of Object.entries(group.members ?? {})) {
+        const current = member.uid ? display.get(member.uid) : undefined;
+        if (!member.uid || current === undefined || (key !== identity.uid && !amAdmin)) continue;
+        const name = memberName(current);
+        if (member.name === name) continue;
+        const entry = renames.get(key) ?? { name, groups: [] };
+        entry.groups.push(group.id);
+        renames.set(key, entry);
+      }
+    }
+    renames.forEach(({ name, groups: ids }, key) => {
+      renameGroupMember(key, name, ids).catch((error) => console.warn('name sync failed', error));
+    });
+  }, [groups, identity, registeredUsers]);
   // Only your games and your groups' games.
   const history = useMemo(
     () => (identity ? allHistory.filter((item) => isVisibleHistory(item, identity, groups)) : []),
@@ -1790,7 +1815,7 @@ async function reopenBuyins() {
         </header>
         <main className="page">
           <div className="segmented" style={{ marginBottom: 14 }}>
-            <button className={page !== 'history' && page !== 'groups' ? 'active' : ''} onClick={() => setPage('home')}>
+            <button className={!['history', 'groups', 'settings', 'profile'].includes(page) ? 'active' : ''} onClick={() => setPage('home')}>
               Play
             </button>
             <button className={page === 'groups' ? 'active' : ''} onClick={() => setPage('groups')}>
@@ -1799,9 +1824,35 @@ async function reopenBuyins() {
             <button className={page === 'history' ? 'active' : ''} onClick={() => setPage('history')}>
               History
             </button>
+            <button className={page === 'settings' || page === 'profile' ? 'active' : ''} onClick={() => setPage('settings')}>
+              Settings
+            </button>
           </div>
 
-          {page === 'groups' ? (
+          {page === 'settings' ? (
+            <>
+              {/* "Hi, Sai", then your profile; like Settings on iOS. */}
+              <section className="card">
+                <div className="section-title">Hi, {identity.displayName}</div>
+                <button className="settings-row" onClick={() => setPage('profile')}>
+                  <span>Profile</span>
+                  <ChevronRight size={16} />
+                </button>
+              </section>
+              <section className="card">
+                <div className="section-title">Theme</div>
+                <ThemePicker />
+              </section>
+            </>
+          ) : page === 'profile' ? (
+            <ProfilePage
+              identity={identity}
+              onSaved={(displayName) => setIdentity({ ...identity, displayName })}
+              onBack={() => setPage('settings')}
+              onLogOut={() => void logoutAccount()}
+              onNotice={setAdminMessage}
+            />
+          ) : page === 'groups' ? (
             <GroupsPage identity={identity} registeredUsers={registeredUsers} groups={groups} onNotice={setAdminMessage} />
           ) : page === 'history' ? (
             <section className="card">
@@ -1845,10 +1896,6 @@ async function reopenBuyins() {
                   </button>
                 </form>
               </section>
-              <section className="card">
-                <div className="section-title">Theme</div>
-                <ThemePicker />
-              </section>
             </>
           )}
         </main>
@@ -1863,6 +1910,9 @@ async function reopenBuyins() {
   // the standings): still in, in the order they joined, then everyone out, the most recently busted first.
   // Same as the iOS app.
   const standings = sortedForEnd;
+  // As shown: you first (the player with your name), then the standings. Places still come from `standings`.
+  const myPlayer = identity ? standings.find((p) => sameName(p.name, identity.displayName)) : undefined;
+  const shownPlayers = myPlayer ? [myPlayer, ...standings.filter((p) => p !== myPlayer)] : standings;
   const ordinal = (n: number) => {
     const tens = n % 100;
     const suffix = tens >= 11 && tens <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] ?? 'th';
@@ -2250,7 +2300,8 @@ async function reopenBuyins() {
                 <span>Bounty net</span>
               </div>
               <div className="standings-list">
-                {standings.map((p, index) => {
+                {shownPlayers.map((p) => {
+                  const index = standings.indexOf(p);
                   const tappable = isAdminUnlocked && p.active && activePlayers.length > 1;
                   const paid = p.buyins * buyIn;
                   const signed = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}€${fmt(Math.abs(n))}`;

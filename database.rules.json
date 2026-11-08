@@ -4,7 +4,10 @@
       ".read": "auth != null",
       "$uid": {
         ".write": "auth != null && auth.uid === $uid",
-        ".validate": "!newData.hasChild('email')"
+        ".validate": "!newData.hasChild('email')",
+        "status": {
+          ".validate": "newData.isString() && newData.val().length <= 80"
+        }
       }
     },
     "rooms": {
@@ -55,7 +58,11 @@
         "members": {
           "$memberId": {
             ".write": "auth != null && auth.uid === $memberId && !newData.exists()",
-            ".validate": "newData.hasChildren(['name', 'addedAt']) && newData.child('name').isString() && newData.child('name').val().length <= 40 && (!newData.hasChild('uid') || newData.child('uid').val() === $memberId)"
+            ".validate": "newData.hasChildren(['name', 'addedAt']) && newData.child('name').isString() && newData.child('name').val().length <= 40 && (!newData.hasChild('uid') || newData.child('uid').val() === $memberId)",
+            "name": {
+              ".write": "auth != null && auth.uid === $memberId && data.parent().exists()",
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 40"
+            }
           }
         },
         "admins": {
@@ -98,6 +105,13 @@
             }
           }
         }
+      }
+    },
+    "avatars": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "newData.isString() && newData.val().beginsWith('data:image/') && newData.val().length <= 150000"
       }
     }
   }

@@ -10,7 +10,7 @@ import { normalizeName, sameName } from './format';
 export const MAX_GROUP_NAME = 40;
 
 /** Names are capped like group names (the database rules reject longer ones). */
-const memberName = (name: string) => normalizeName(name).slice(0, MAX_GROUP_NAME) || 'Player';
+export const memberName = (name: string) => normalizeName(name).slice(0, MAX_GROUP_NAME) || 'Player';
 
 export const isGroupAdmin = (group: PlayerGroup, uid: string) => group.admins?.[uid] === true;
 
@@ -50,6 +50,16 @@ export async function addGroupMembers(groupId: string, accounts: { uid: string; 
   });
   names.forEach((n) => {
     changes[`groups/${groupId}/members/n_${makeId()}`] = { name: memberName(n), addedAt: now };
+  });
+  if (Object.keys(changes).length) await update(ref(db), changes);
+}
+
+/** Renames the member stored under `key` in each of these groups, in one write (admins: names without an
+ *  account; anyone: their own name, to keep their display name the same in every group). */
+export async function renameGroupMember(key: string, name: string, groupIds: string[]) {
+  const changes: Record<string, string> = {};
+  groupIds.forEach((id) => {
+    changes[`groups/${id}/members/${key}/name`] = memberName(name);
   });
   if (Object.keys(changes).length) await update(ref(db), changes);
 }
