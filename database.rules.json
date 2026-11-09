@@ -1,8 +1,10 @@
 {
   "rules": {
     "users": {
-      ".read": "auth != null",
+      ".read": "auth != null && query.orderByChild === 'displayNameKey' && query.equalTo != null && query.limitToFirst <= 5",
+      ".indexOn": ["displayNameKey"],
       "$uid": {
+        ".read": "auth != null",
         ".write": "auth != null && auth.uid === $uid",
         ".validate": "!newData.hasChild('email')",
         "status": {
@@ -12,10 +14,12 @@
     },
     "rooms": {
       ".read": true,
-      ".write": "auth != null && auth.provider != 'anonymous'",
       ".indexOn": [
         "phase"
-      ]
+      ],
+      "$roomId": {
+        ".write": "auth != null && auth.provider != 'anonymous'"
+      }
     },
     "roomPins": {
       "$roomId": {
@@ -25,7 +29,9 @@
     },
     "history": {
       ".read": "auth != null",
-      ".write": "auth != null"
+      "$roomId": {
+        ".write": "auth != null && auth.provider != 'anonymous'"
+      }
     },
     "toneIndex": {
       ".read": true,

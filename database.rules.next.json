@@ -1,0 +1,134 @@
+{
+  "rules": {
+    "users": {
+      ".read": "auth != null && query.orderByChild === 'displayNameKey' && query.equalTo != null && query.limitToFirst <= 5",
+      ".indexOn": [
+        "displayNameKey"
+      ],
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "!newData.hasChild('email')",
+        "status": {
+          ".validate": "newData.isString() && newData.val().length <= 80"
+        }
+      }
+    },
+    "rooms": {
+      ".indexOn": [
+        "phase"
+      ],
+      "$roomId": {
+        ".write": "auth != null && auth.provider != 'anonymous'",
+        ".read": true
+      }
+    },
+    "roomPins": {
+      "$roomId": {
+        ".read": "auth != null && auth.provider != 'anonymous'",
+        ".write": "auth != null && auth.provider != 'anonymous'"
+      }
+    },
+    "history": {
+      "$roomId": {
+        ".write": "auth != null && auth.provider != 'anonymous'",
+        ".read": "auth != null"
+      }
+    },
+    "toneIndex": {
+      ".read": true,
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid && auth.provider != 'anonymous' && (!data.exists() || !newData.exists())",
+        ".validate": "newData.hasChildren(['name', 'ownerName', 'durationSec', 'sizeKb', 'createdAt']) && newData.child('name').isString() && newData.child('name').val().length <= 60 && newData.child('durationSec').isNumber() && newData.child('durationSec').val() <= 31 && newData.child('sizeKb').isNumber() && newData.child('sizeKb').val() <= 600"
+      }
+    },
+    "tones": {
+      "$uid": {
+        ".read": true,
+        ".write": "auth != null && auth.uid === $uid && auth.provider != 'anonymous' && (!data.exists() || !newData.exists())",
+        ".validate": "newData.hasChildren(['data']) && newData.child('data').isString() && newData.child('data').val().beginsWith('data:audio/') && newData.child('data').val().length <= 850000"
+      }
+    },
+    "splitwiseUsers": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": false
+      }
+    },
+    "groups": {
+      "$groupId": {
+        ".read": "auth != null && data.child('members').child(auth.uid).exists()",
+        ".write": "auth != null && auth.provider != 'anonymous' && (data.child('admins').child(auth.uid).val() === true || (!data.exists() && newData.child('admins').child(auth.uid).val() === true && newData.child('members').child(auth.uid).child('uid').val() === auth.uid))",
+        ".validate": "newData.hasChildren(['name', 'createdAt', 'members', 'admins'])",
+        "name": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 40"
+        },
+        "members": {
+          "$memberId": {
+            ".write": "auth != null && auth.uid === $memberId && !newData.exists()",
+            ".validate": "newData.hasChildren(['name', 'addedAt']) && newData.child('name').isString() && newData.child('name').val().length <= 40 && (!newData.hasChild('uid') || newData.child('uid').val() === $memberId)",
+            "name": {
+              ".write": "auth != null && auth.uid === $memberId && data.parent().exists()",
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 40"
+            }
+          }
+        },
+        "admins": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && !newData.exists()",
+            ".validate": "newData.val() === true && newData.parent().parent().child('members').child($uid).child('uid').val() === $uid"
+          }
+        }
+      }
+    },
+    "userGroups": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$groupId": {
+          ".write": "auth != null && ((auth.uid === $uid && !newData.exists()) || root.child('groups').child($groupId).child('admins').child(auth.uid).val() === true || newData.parent().parent().parent().child('groups').child($groupId).child('admins').child(auth.uid).val() === true)",
+          ".validate": "newData.val() === true"
+        }
+      }
+    },
+    "groupPolls": {
+      "$groupId": {
+        ".read": "auth != null && root.child('groups').child($groupId).child('members').child(auth.uid).exists()",
+        "$pollId": {
+          ".write": "auth != null && auth.provider != 'anonymous' && (root.child('groups').child($groupId).child('admins').child(auth.uid).val() === true || (root.child('groups').child($groupId).child('members').child(auth.uid).exists() && ((!data.exists() && newData.child('createdBy').child('uid').val() === auth.uid) || data.child('createdBy').child('uid').val() === auth.uid)))",
+          ".validate": "newData.hasChildren(['title', 'startsAt', 'createdAt', 'createdBy'])",
+          "title": {
+            ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 40"
+          },
+          "startsAt": {
+            ".validate": "newData.isNumber()"
+          },
+          "roomId": {
+            ".write": "auth != null && auth.provider != 'anonymous' && root.child('groups').child($groupId).child('members').child(auth.uid).exists() && !data.exists()",
+            ".validate": "newData.isString()"
+          },
+          "votes": {
+            "$memberKey": {
+              ".write": "auth != null && auth.uid === $memberKey && root.child('groups').child($groupId).child('members').child(auth.uid).exists() && data.parent().parent().exists()",
+              ".validate": "auth != null && auth.uid === $memberKey && newData.hasChildren(['answer', 'name', 'at']) && (newData.child('answer').val() === 'in' || newData.child('answer').val() === 'out' || newData.child('answer').val() === 'buyin') && root.child('groups').child($groupId).child('members').child($memberKey).exists()"
+            }
+          }
+        }
+      }
+    },
+    "avatars": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "newData.isString() && newData.val().beginsWith('data:image/') && newData.val().length <= 150000"
+      }
+    },
+    "pushTokens": {
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid",
+        "$key": {
+          ".validate": "newData.hasChildren(['token', 'platform', 'updatedAt']) && newData.child('token').isString() && newData.child('token').val().length <= 4096"
+        }
+      }
+    }
+  }
+}

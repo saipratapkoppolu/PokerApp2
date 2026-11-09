@@ -73,7 +73,8 @@ import { SPLITWISE_GROUP_ID } from './config/splitwise';
 import { useAlertsPreference, useSoundPaused, useTournamentClock } from './hooks/useTournamentClock';
 import { useLiveRooms } from './hooks/useLiveRooms';
 import { useGroups } from './hooks/useGroups';
-import { historyItemFor, isVisibleHistory, recoverMissingHistory } from './utils/history';
+import { historyItemFor, isVisibleHistory } from './utils/history';
+import { refreshVisible, subscribeVisible } from './utils/visible';
 import { usePolls } from './hooks/usePolls';
 import PollsCard from './components/PollsCard';
 import ProfilePage from './components/ProfilePage';
@@ -365,55 +366,45 @@ export default function App() {
   return () => unsubAuth();
 }, []);
 
-  // History is readable only when logged in. Subscribe once the login is restored: a read sent
-  // before that is denied and Firebase cancels the listener for good, leaving history empty.
+  // The finished games this account may see, from the worker (nobody can list all of history/).
   useEffect(() => {
     if (!identity) {
       setHistory([]);
       return;
     }
-    let recovered = false;
-    const unsubscribe = onValue(
-      ref(db, 'history'),
-      (snapshot) => {
-        const value = snapshot.val() ?? {};
-        const items = Object.values(value) as HistoryItem[];
-        items.sort((a, b) => b.completedAt - a.completedAt);
-        setHistory(items);
-        // Once per sign-in, online: write back rows lost when a game ended.
-        if (!recovered && navigator.onLine) {
-          recovered = true;
-          recoverMissingHistory(identity, items).catch((error) => console.error('history repair failed', error));
-        }
-      },
-      (error) => {
-        console.error('history read failed', error);
-      }
-    );
-    return () => unsubscribe();
+    return subscribeVisible(({ history: items }) => setHistory(items));
   }, [identity]);
 
+  // The profiles of everyone with an account in your groups, read one by one: nobody can list every account.
+  const groupUids = useMemo(() => {
+    const uids = new Set<string>(identity ? [identity.uid] : []);
+    for (const group of groups) for (const member of Object.values(group.members ?? {})) if (member.uid) uids.add(member.uid);
+    return [...uids].sort().join(',');
+  }, [groups, identity]);
   useEffect(() => {
-  if (!identity) return;
-
-  const usersRef = ref(db, 'users');
-
-  const unsubscribe = onValue(
-    usersRef,
-    (snapshot) => {
-    
-      const value = snapshot.val() ?? {};
-      const items = Object.values(value) as UserProfile[];
-      items.sort((a, b) => a.displayName.localeCompare(b.displayName));
-      setRegisteredUsers(items.filter((item) => item.active !== false));
-    },
-    (error) => {
-      console.error('users read failed', error);
+    if (!identity || !groupUids) {
+      setRegisteredUsers([]);
+      return;
     }
-  );
-
-  return () => unsubscribe();
-}, [identity]);
+    const profiles = new Map<string, UserProfile>();
+    const publish = () =>
+      setRegisteredUsers(
+        [...profiles.values()].filter((u) => u.active !== false).sort((a, b) => a.displayName.localeCompare(b.displayName))
+      );
+    const unsubscribes = groupUids.split(',').map((uid) =>
+      onValue(
+        ref(db, `users/${uid}`),
+        (snapshot) => {
+          const value = snapshot.val() as UserProfile | null;
+          if (value) profiles.set(uid, { ...value, uid });
+          else profiles.delete(uid);
+          publish();
+        },
+        (error) => console.warn('profile read failed', uid, error)
+      )
+    );
+    return () => unsubscribes.forEach((stop) => stop());
+  }, [identity, groupUids]);
 
   useEffect(() => {
     if (!identity) return;
@@ -1421,6 +1412,8 @@ async function reopenBuyins() {
     // The result and its history row in one write, so both are saved or neither.
     const historyItem = historyItemFor(room, Date.now(), winner);
     await patchRoom({ phase: 'end', payouts, events: [event, ...events] }, { [`history/${room.roomId}`]: historyItem });
+    // History comes from the worker: ask again now the game is saved, so it shows straight away.
+    void refreshVisible();
     setShowPayoutModal(false);
     setUndoStack([]);
     setPage('completed');
@@ -2169,7 +2162,7 @@ async function reopenBuyins() {
 
               {registeredUsers.length > 0 && (
                 <>
-                  <div className="sub-label">Registered players</div>
+                  <div className="sub-label">From your groups</div>
                   <div className="chip-grid">
                     {registeredUsers.map((user) => {
                       const selected = selectedRegisteredUserIds.includes(user.uid);

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { equalTo, onValue, orderByChild, query, ref } from 'firebase/database';
-import { signInAnonymously } from 'firebase/auth';
-import { auth, db } from '../firebase';
+import { onValue, ref } from 'firebase/database';
+import { db } from '../firebase';
+import { subscribeVisible } from '../utils/visible';
 import type { LiveRoomSummary, Player, RoomState } from '../types/app';
 import { normalizeLevels } from '../utils/blinds';
 import { lastActivity } from '../utils/room';
@@ -27,47 +27,57 @@ function summarize(room: RoomState): LiveRoomSummary {
   };
 }
 
-/** Tournaments in progress right now, read straight from rooms — no account or room code needed. */
+/** Tournaments in progress that this account may see (the worker lists them: nobody can list every room), each
+ *  followed live. Signed out: none (a game still opens with its code or link). */
 export function useLiveRooms() {
   const [rooms, setRooms] = useState<LiveRoomSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [attempt, setAttempt] = useState(0);
-  const [authVersion, setAuthVersion] = useState(0);
 
   useEffect(() => {
-    const liveQuery = query(ref(db, 'rooms'), orderByChild('phase'), equalTo('game'));
-    return onValue(
-      liveQuery,
-      (snapshot) => {
-        const value = (snapshot.val() ?? {}) as Record<string, RoomState>;
-        const cutoff = Date.now() - STALE_AFTER_MS;
-        const list = Object.values(value)
-          .filter((room) => room && room.roomId)
+    const following = new Map<string, () => void>();
+    const latest = new Map<string, RoomState>();
+    const publish = () => {
+      const cutoff = Date.now() - STALE_AFTER_MS;
+      setRooms(
+        [...latest.values()]
+          .filter((room) => room && room.roomId && room.phase === 'game')
           .map(summarize)
           .filter((room) => room.updatedAt > cutoff)
-          .sort((a, b) => b.updatedAt - a.updatedAt);
-        setRooms(list);
-        setLoading(false);
-      },
-      async (error) => {
-        // Rules may require a signed-in user: retry once as an anonymous guest.
-        if (attempt === 0 && !auth.currentUser) {
-          try {
-            await signInAnonymously(auth);
-            setAttempt(1);
-            return;
-          } catch (signInError) {
-            console.warn('Anonymous sign-in unavailable', signInError);
-          }
-        }
-        console.error('live rooms read failed', error);
-        setLoading(false);
-      }
-    );
-  }, [attempt, authVersion]);
-
-  // Re-read when someone logs in or out (their read permission changes).
-  useEffect(() => auth.onAuthStateChanged(() => setAuthVersion((n) => n + 1)), []);
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+      );
+    };
+    const stopVisible = subscribeVisible(({ live }) => {
+      const ids = new Set(live);
+      following.forEach((stop, id) => {
+        if (ids.has(id)) return;
+        stop();
+        following.delete(id);
+        latest.delete(id);
+      });
+      ids.forEach((id) => {
+        if (following.has(id)) return;
+        following.set(
+          id,
+          onValue(
+            ref(db, `rooms/${id}`),
+            (snapshot) => {
+              const room = snapshot.val() as RoomState | null;
+              if (room) latest.set(id, { ...room, roomId: room.roomId || id });
+              else latest.delete(id);
+              publish();
+            },
+            (error) => console.warn('live room read failed', id, error)
+          )
+        );
+      });
+      publish();
+      setLoading(false);
+    });
+    return () => {
+      stopVisible();
+      following.forEach((stop) => stop());
+    };
+  }, []);
 
   const [now, setNow] = useState(() => Date.now());
   const anyRunning = rooms.some((room) => room.clock?.running);

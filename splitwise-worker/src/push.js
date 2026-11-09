@@ -193,13 +193,13 @@ async function send(env, { to, title, body, link, thread, poll, urgent }) {
 
 // ---------------------------------------------------------------- database (service account)
 
-async function read(env, path) {
+export async function read(env, path) {
   const res = await fetch(`${DB}/${path}.json`, { headers: { Authorization: `Bearer ${await accessToken(env)}` } });
   if (!res.ok) throw new Error(`read ${path}: ${res.status}`);
   return res.json();
 }
 
-async function write(env, path, value) {
+export async function write(env, path, value) {
   const res = await fetch(`${DB}/${path}.json`, {
     method: value === null ? 'DELETE' : 'PUT',
     headers: { Authorization: `Bearer ${await accessToken(env)}`, 'Content-Type': 'application/json' },
@@ -208,8 +208,26 @@ async function write(env, path, value) {
   if (!res.ok) throw new Error(`write ${path}: ${res.status}`);
 }
 
+/** Several paths in one write (null deletes). */
+export async function patch(env, values) {
+  const res = await fetch(`${DB}/.json`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${await accessToken(env)}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(values),
+  });
+  if (!res.ok) throw new Error(`patch: ${res.status}`);
+}
+
+/** Children whose `child` equals `value` (needs .indexOn in the rules). */
+export async function readWhere(env, path, child, value) {
+  const params = new URLSearchParams({ orderBy: JSON.stringify(child), equalTo: JSON.stringify(value) });
+  const res = await fetch(`${DB}/${path}.json?${params}`, { headers: { Authorization: `Bearer ${await accessToken(env)}` } });
+  if (!res.ok) throw new Error(`read ${path} where ${child}: ${res.status}`);
+  return res.json();
+}
+
 /** Keys from requests become database paths: only plain keys. */
-const safeKey = (v) => (typeof v === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(v) ? v : '');
+export const safeKey = (v) => (typeof v === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(v) ? v : '');
 
 // ---------------------------------------------------------------- Google auth
 
@@ -256,7 +274,7 @@ async function signJwt(claims, pem) {
 let cachedKeys = { keys: [], expires: 0 };
 
 /** The signed-in Firebase user behind an ID token (checked against Google's public keys), or ''. */
-async function verifyIdToken(token) {
+export async function verifyIdToken(token) {
   try {
     const [h, p, s] = token.split('.');
     const header = JSON.parse(new TextDecoder().decode(unb64url(h)));
@@ -289,5 +307,5 @@ function unb64url(s) {
   return Uint8Array.from(bin, (c) => c.charCodeAt(0));
 }
 
-const json = (body, status, headers) =>
+export const json = (body, status, headers) =>
   new Response(JSON.stringify(body), { status, headers: { ...headers, 'Content-Type': 'application/json' } });

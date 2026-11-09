@@ -16,6 +16,7 @@ GROUP_ID = "66133405"
 #   npx wrangler secret put SPLITWISE_CLIENT_SECRET
 #   npx wrangler secret put SESSION_SECRET
 
-# Poll reminders ("starts in an hour"), see src/push.js.
+# Poll reminders ("starts in an hour"), see src/push.js; daily at 03:30 UTC, old games out and lost history rows
+# back, see src/games.js (DAILY in src/index.js must match).
 [triggers]
-crons = ["*/15 * * * *"]
+crons = ["*/15 * * * *", "30 3 * * *"]

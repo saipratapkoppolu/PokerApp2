@@ -13,8 +13,11 @@
  * The browser only ever holds the encrypted session, which is useless without this worker.
  */
 
+const DAILY = '30 3 * * *';
+
 const API_ALLOWED = new Set(['GET get_current_user', 'GET get_groups', 'POST create_expense']);
 
+import { visible, upkeep } from './games.js';
 import { notify, remind } from './push.js';
 
 export default {
@@ -22,6 +25,7 @@ export default {
     const url = new URL(request.url);
     try {
       if (url.pathname === '/notify') return await notify(request, env, appCors(request, env));
+      if (url.pathname === '/visible') return await visible(request, env, appCors(request, env));
       if (url.pathname === '/login') return login(url, env);
       if (url.pathname === '/callback') return await callback(request, url, env);
       if (url.pathname.startsWith('/api/')) return await api(request, url, env);
@@ -31,9 +35,10 @@ export default {
     }
   },
 
-  /** Every 15 minutes: "starts in an hour" reminders for polls (see push.js). */
-  async scheduled(_event, env, ctx) {
-    ctx.waitUntil(remind(env));
+  /** Every 15 minutes: "starts in an hour" reminders for polls (see push.js). Daily: old games out, lost
+   *  history rows back (see games.js). */
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(event.cron === DAILY ? upkeep(env) : remind(env));
   },
 };
 
@@ -43,7 +48,7 @@ function appCors(request, env) {
   return isAllowedOrigin(origin, env)
     ? {
         'Access-Control-Allow-Origin': origin,
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Authorization, Content-Type',
         'Access-Control-Max-Age': '86400',
         Vary: 'Origin',

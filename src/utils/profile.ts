@@ -1,6 +1,7 @@
 import { updateProfile } from 'firebase/auth';
-import { get, ref, update } from 'firebase/database';
+import { equalTo, get, limitToFirst, orderByChild, query, ref, update } from 'firebase/database';
 import { auth, db } from '../firebase';
+import type { UserProfile } from '../types/app';
 import { makeNameKey, normalizeName } from './format';
 
 /** Profiles, the same as Profiles.swift on iOS. */
@@ -17,6 +18,16 @@ export async function saveProfile(uid: string, displayName: string, status: stri
   if (auth.currentUser) await updateProfile(auth.currentUser, { displayName: name });
   await update(ref(db, `users/${uid}`), { displayName: name, displayNameKey: makeNameKey(name), status: tidy || null });
   return name;
+}
+
+/** Accounts whose display name is exactly this (ignoring case and spaces). The only list query the rules allow:
+ *  nobody can browse every account. */
+export async function findAccounts(name: string): Promise<UserProfile[]> {
+  const key = makeNameKey(name);
+  if (!key) return [];
+  const snap = await get(query(ref(db, 'users'), orderByChild('displayNameKey'), equalTo(key), limitToFirst(5)));
+  const value = (snap.val() ?? {}) as Record<string, UserProfile>;
+  return Object.entries(value).map(([uid, profile]) => ({ ...profile, uid }));
 }
 
 export async function loadPhoto(uid: string): Promise<string | null> {

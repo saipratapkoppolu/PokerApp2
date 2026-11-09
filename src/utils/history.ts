@@ -1,7 +1,4 @@
-import { equalTo, get, orderByChild, query, ref, set } from 'firebase/database';
-import { db } from '../firebase';
-import type { HistoryItem, PayoutMode, PlayerGroup, RoomEvent, RoomState, UserIdentity } from '../types/app';
-import { lastActivity } from './room';
+import type { HistoryItem, PayoutMode, PlayerGroup, RoomState, UserIdentity } from '../types/app';
 
 /** Firebase keeps arrays as arrays or as objects keyed by index. */
 function list<T>(value: T[] | Record<string, T> | undefined): T[] {
@@ -30,30 +27,6 @@ export function historyItemFor(room: RoomState, completedAt: number, winner?: st
   if (room.settings.currency) item.currency = room.settings.currency;
   if (room.createdBy?.uid) item.createdById = room.createdBy.uid;
   return item;
-}
-
-/** Rebuilds a missing history row from a finished room: time and winner from its "finished" event. */
-function recoveredItem(room: RoomState): HistoryItem {
-  const finished = list<RoomEvent>(room.events).find((e) => e?.type === 'tournament_finished');
-  const winner = typeof finished?.meta?.winner === 'string' ? finished.meta.winner : undefined;
-  return historyItemFor(room, finished?.createdAt ?? lastActivity(room), winner);
-}
-
-/**
- * Finished rooms the user was in that have no history row (it was lost when the game ended):
- * writes the rows back. Call once, online, after history has loaded.
- */
-export async function recoverMissingHistory(me: UserIdentity, history: HistoryItem[]) {
-  const snapshot = await get(query(ref(db, 'rooms'), orderByChild('phase'), equalTo('end')));
-  const known = new Set(history.map((item) => item.roomId));
-  const rooms = Object.values((snapshot.val() ?? {}) as Record<string, RoomState>);
-  const missing = rooms.filter(
-    (room) =>
-      room?.roomId &&
-      !known.has(room.roomId) &&
-      (room.createdBy?.uid === me.uid || list<UserIdentity>(room.users).some((u) => u?.uid === me.uid))
-  );
-  await Promise.all(missing.map((room) => set(ref(db, `history/${room.roomId}`), recoveredItem(room))));
 }
 
 const nameKey = (name: string | undefined) => (name ?? '').trim().replace(/\s+/g, ' ').toLowerCase();

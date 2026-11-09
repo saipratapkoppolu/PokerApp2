@@ -17,7 +17,7 @@ import {
 import { normalizeName, sameName } from '../utils/format';
 import { createPoll } from '../utils/polls';
 import { useAvatars } from '../hooks/useAvatars';
-import { avatarColor } from '../utils/profile';
+import { avatarColor, findAccounts } from '../utils/profile';
 import MemberProfileSheet from './MemberProfileSheet';
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -136,7 +136,11 @@ function GroupDetail({
   run: (action: () => Promise<unknown>, done?: string) => Promise<void>;
   onBack: () => void;
 }) {
-  const [picked, setPicked] = useState<string[]>([]);
+  // Ticked accounts, from your other groups or found by name.
+  const [picked, setPicked] = useState<UserProfile[]>([]);
+  const [accountName, setAccountName] = useState('');
+  const [searched, setSearched] = useState<{ name: string; found: UserProfile[] } | null>(null);
+  const [searching, setSearching] = useState(false);
   const [guestName, setGuestName] = useState('');
   const [pollTitle, setPollTitle] = useState('');
   const [pollDate, setPollDate] = useState(nextEveningDate);
@@ -155,19 +159,39 @@ function GroupDetail({
     registeredUsers
   );
   const adminCount = Object.keys(group.admins ?? {}).length;
-  // Accounts not in the group yet (by uid or by the same name).
-  const candidates = registeredUsers.filter((u) => !group.members?.[u.uid] && !hasMemberNamed(group, u.displayName));
-  // Search by name; accounts already ticked stay shown.
-  const [search, setSearch] = useState('');
-  const query = search.trim().toLowerCase();
-  const shown = query ? candidates.filter((u) => picked.includes(u.uid) || u.displayName.toLowerCase().includes(query)) : candidates;
+  // Not in the group yet (by uid or by the same name).
+  const canAdd = (u: UserProfile) => !group.members?.[u.uid] && !hasMemberNamed(group, u.displayName);
+  // People from your other groups (nobody can browse every account).
+  const candidates = registeredUsers.filter(canAdd);
+  const found = (searched?.found ?? []).filter(canAdd);
+  const isPicked = (u: UserProfile) => picked.some((p) => p.uid === u.uid);
+  const togglePicked = (u: UserProfile) => setPicked((prev) => (isPicked(u) ? prev.filter((p) => p.uid !== u.uid) : [...prev, u]));
+  const findAccount = async () => {
+    const name = normalizeName(accountName);
+    if (!name || searching) return;
+    setSearching(true);
+    try {
+      setSearched({ name, found: await findAccounts(name) });
+    } catch (error) {
+      console.warn('account search failed', error);
+      setSearched({ name, found: [] });
+    } finally {
+      setSearching(false);
+    }
+  };
+  const accountChip = (u: UserProfile) => (
+    <button key={u.uid} type="button" className={`select-chip ${isPicked(u) ? 'selected' : ''}`} onClick={() => togglePicked(u)} title={u.status || undefined}>
+      {isPicked(u) ? '+ ' : ''}
+      {u.displayName}
+    </button>
+  );
   const me = group.members?.[identity.uid];
   // The last admin can't leave while others remain: someone must be able to manage the group.
   const lastAdminWithOthers = amAdmin && adminCount === 1 && members.length > 1;
 
   const addPicked = () => {
     // Accounts appear under their display name (the same in every group).
-    const accounts = registeredUsers.filter((u) => picked.includes(u.uid)).map((u) => ({ uid: u.uid, name: u.displayName }));
+    const accounts = picked.map((u) => ({ uid: u.uid, name: u.displayName }));
     void run(async () => {
       await addGroupMembers(group.id, accounts, []);
       setPicked([]);
@@ -348,47 +372,55 @@ function GroupDetail({
       {amAdmin && (
         <section className="card">
           <div className="section-title">Add members</div>
+          <div className="sub-label" style={{ marginTop: 0 }}>
+            Find an account
+          </div>
+          <form
+            className="input-row"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void findAccount();
+            }}
+          >
+            <input
+              value={accountName}
+              onChange={(e) => setAccountName(e.target.value)}
+              placeholder="Their exact display name"
+              autoComplete="off"
+              autoCapitalize="none"
+              maxLength={40}
+            />
+            <button type="submit" className="btn btn-ghost" disabled={searching || !normalizeName(accountName)}>
+              Find
+            </button>
+          </form>
+          <div className="tiny muted" style={{ marginTop: 6 }}>
+            Type their display name exactly as it is in the app. Nobody can browse every account.
+          </div>
+          {searched && (
+            <div style={{ marginTop: 10 }}>
+              {found.length === 0 ? (
+                <div className="tiny muted">No account is called “{searched.name}”.</div>
+              ) : (
+                <div className="chip-grid">{found.map(accountChip)}</div>
+              )}
+            </div>
+          )}
           {candidates.length > 0 && (
             <>
-              <div className="sub-label" style={{ marginTop: 0 }}>
-                App accounts
-              </div>
-              <input
-                type="search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search accounts"
-                autoComplete="off"
-                style={{ marginBottom: 10 }}
-              />
-              {shown.length === 0 && <div className="tiny muted" style={{ marginBottom: 10 }}>No accounts match “{search.trim()}”.</div>}
-              <div className="chip-grid">
-                {shown.map((u) => {
-                  const selected = picked.includes(u.uid);
-                  return (
-                    <button
-                      key={u.uid}
-                      type="button"
-                      className={`select-chip ${selected ? 'selected' : ''}`}
-                      onClick={() => setPicked((prev) => (selected ? prev.filter((x) => x !== u.uid) : [...prev, u.uid]))}
-                    >
-                      {selected ? '+ ' : ''}
-                      {u.displayName}
-                    </button>
-                  );
-                })}
-              </div>
-              {picked.length > 0 && (
-                <div className="btn-pair" style={{ marginTop: 10 }}>
-                  <button className="btn btn-ghost" onClick={() => setPicked([])}>
-                    Clear
-                  </button>
-                  <button className="btn btn-green" disabled={busy} onClick={addPicked}>
-                    <UserPlus size={16} /> Add {picked.length}
-                  </button>
-                </div>
-              )}
+              <div className="sub-label">From your groups</div>
+              <div className="chip-grid">{candidates.map(accountChip)}</div>
             </>
+          )}
+          {picked.length > 0 && (
+            <div className="btn-pair" style={{ marginTop: 10 }}>
+              <button className="btn btn-ghost" onClick={() => setPicked([])}>
+                Clear
+              </button>
+              <button className="btn btn-green" disabled={busy} onClick={addPicked}>
+                <UserPlus size={16} /> Add {picked.length}
+              </button>
+            </div>
           )}
           <div className="sub-label">Someone without an account</div>
           <form
