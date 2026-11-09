@@ -78,7 +78,7 @@ import { usePolls } from './hooks/usePolls';
 import PollsCard from './components/PollsCard';
 import ProfilePage from './components/ProfilePage';
 import { pollFromPath, startGameFromPoll, startingPlayers } from './utils/polls';
-import { disablePush, enablePush, notifyEvent } from './utils/push';
+import { disablePush, enablePush, notifyEvent, pushSupported } from './utils/push';
 import GroupsPage from './components/GroupsPage';
 import { groupMembers, memberName, renameGroupMember } from './utils/groups';
 import { useSplitwiseAccess } from './hooks/useSplitwiseAccess';
@@ -185,6 +185,28 @@ export default function App() {
     if (!identity) return;
     void enablePush(identity.uid, false).then(setPushOn).catch(() => setPushOn(false));
   }, [identity?.uid]);
+  // Home's "get notified" card: until notifications are on here, or it's dismissed. Browsers only show the
+  // permission prompt after a tap, so the app can't ask by itself.
+  const [askPush, setAskPush] = useState(false);
+  useEffect(() => {
+    let dismissed = false;
+    try {
+      dismissed = localStorage.getItem('poker.pushCardDismissed') === '1';
+    } catch {
+      dismissed = false;
+    }
+    if (!identity || dismissed) return setAskPush(false);
+    void pushSupported().then((ok) => setAskPush(ok && Notification.permission === 'default'));
+  }, [identity, pushOn]);
+  function dismissPushCard() {
+    setAskPush(false);
+    try {
+      localStorage.setItem('poker.pushCardDismissed', '1');
+    } catch {
+      // Not saved: the card comes back next time.
+    }
+  }
+
   async function turnOnPush() {
     if (!identity) return;
     try {
@@ -1928,6 +1950,20 @@ async function reopenBuyins() {
             </section>
           ) : (
             <>
+              {askPush && !pushOn && (
+                <section className="card">
+                  <div className="section-title">Get notified about polls and games</div>
+                  <p className="muted small-copy">New polls in your groups, games starting and reminders.</p>
+                  <div className="input-row">
+                    <button className="btn btn-green" onClick={() => void turnOnPush()}>
+                      Turn on
+                    </button>
+                    <button className="btn btn-ghost" onClick={dismissPushCard}>
+                      Not now
+                    </button>
+                  </div>
+                </section>
+              )}
               {identity && <PollsCard polls={polls} groups={groups} identity={identity} onStartGame={(poll) => void startPollGame(poll)} onNotice={setAdminMessage} openPollId={openPollId} />}
               {liveList}
               <section className="card">

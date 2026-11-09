@@ -27,9 +27,20 @@ export async function notify(request, env, cors) {
   const uid = await verifyIdToken((request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, ''));
   if (!uid) return json({ error: 'Sign in first' }, 401, cors);
   const body = await request.json().catch(() => ({}));
-  // A test from Settings: only to yourself.
+  // A test from Settings, only to yourself: your newest open poll, the way a real one arrives (opens it, and on
+  // iPhone has In / Buy-in / Out); a plain note when none of your groups has one.
   if (body.event === 'test') {
-    const sent = await send(env, { to: [uid], title: 'Notifications are on', body: 'This is how polls, games and reminders will reach you.', link: SITE });
+    const poll = await newestOpenPoll(env, uid);
+    const message = poll
+      ? {
+          title: poll.title,
+          body: `Test: this is how ${poll.groupName} polls reach you.`,
+          link: `${SITE}/poll/${poll.groupId}/${poll.pollId}`,
+          thread: poll.groupId,
+          poll: { groupId: poll.groupId, pollId: poll.pollId },
+        }
+      : { title: 'Notifications are on', body: 'Polls, games and reminders will reach you here.', link: SITE };
+    const sent = await send(env, { to: [uid], ...message });
     return json({ sent }, 200, cors);
   }
   const groupId = safeKey(body.groupId);
@@ -85,6 +96,22 @@ export async function notify(request, env, cors) {
 
   const sent = await send(env, message);
   return json({ sent }, 200, cors);
+}
+
+/** The open poll (no game yet, not long past) in your groups that was posted last, or null. */
+async function newestOpenPoll(env, uid) {
+  const groupIds = Object.keys((await read(env, `userGroups/${uid}`)) || {}).filter(safeKey);
+  let newest = null;
+  for (const groupId of groupIds) {
+    const [group, polls] = await Promise.all([read(env, `groups/${groupId}`), read(env, `groupPolls/${groupId}`)]);
+    for (const [pollId, poll] of Object.entries(polls || {})) {
+      const open = !poll.roomId && (poll.startsAt || 0) > Date.now() - 12 * 3600_000;
+      if (open && (!newest || (poll.createdAt || 0) > newest.createdAt)) {
+        newest = { groupId, pollId, title: poll.title, createdAt: poll.createdAt || 0, groupName: group?.name || 'your group' };
+      }
+    }
+  }
+  return newest;
 }
 
 /** Cron: an hour before each open poll, members with an account who haven't answered (once per poll). */
