@@ -113,6 +113,14 @@
         ".write": "auth != null && auth.uid === $uid",
         ".validate": "newData.isString() && newData.val().beginsWith('data:image/') && newData.val().length <= 150000"
       }
+    },
+    "pushTokens": {
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid",
+        "$key": {
+          ".validate": "newData.hasChildren(['token', 'platform', 'updatedAt']) && newData.child('token').isString() && newData.child('token').val().length <= 4096"
+        }
+      }
     }
   }
 }

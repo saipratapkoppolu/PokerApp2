@@ -2,6 +2,7 @@ import { ref, update } from 'firebase/database';
 import { db } from '../firebase';
 import type { GroupMember, PlayerGroup, UserIdentity } from '../types/app';
 import { makeId } from './room';
+import { notifyEvent } from './push';
 import { normalizeName, sameName } from './format';
 
 // Data: groups/{groupId} (read by members, written by its admins) + userGroups/{uid}/{groupId} = true,
@@ -52,6 +53,8 @@ export async function addGroupMembers(groupId: string, accounts: { uid: string; 
     changes[`groups/${groupId}/members/n_${makeId()}`] = { name: memberName(n), addedAt: now };
   });
   if (Object.keys(changes).length) await update(ref(db), changes);
+  // Accounts just added hear about it (the worker checks you're the group's admin).
+  if (accounts.length) void notifyEvent({ event: 'added', groupId, uids: accounts.map((a) => a.uid) });
 }
 
 /** Renames the member stored under `key` in each of these groups, in one write (admins: names without an

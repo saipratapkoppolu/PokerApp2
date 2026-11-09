@@ -15,10 +15,13 @@
 
 const API_ALLOWED = new Set(['GET get_current_user', 'GET get_groups', 'POST create_expense']);
 
+import { notify, remind } from './push.js';
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     try {
+      if (url.pathname === '/notify') return await notify(request, env, appCors(request, env));
       if (url.pathname === '/login') return login(url, env);
       if (url.pathname === '/callback') return await callback(request, url, env);
       if (url.pathname.startsWith('/api/')) return await api(request, url, env);
@@ -27,7 +30,26 @@ export default {
       return text(`Error: ${err instanceof Error ? err.message : 'unknown'}`, 500);
     }
   },
+
+  /** Every 15 minutes: "starts in an hour" reminders for polls (see push.js). */
+  async scheduled(_event, env, ctx) {
+    ctx.waitUntil(remind(env));
+  },
 };
+
+/** CORS for the website (the iOS app sends no Origin). */
+function appCors(request, env) {
+  const origin = request.headers.get('Origin') || '';
+  return isAllowedOrigin(origin, env)
+    ? {
+        'Access-Control-Allow-Origin': origin,
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+        'Access-Control-Max-Age': '86400',
+        Vary: 'Origin',
+      }
+    : {};
+}
 
 const base = (env) => env.SPLITWISE_BASE || 'https://secure.splitwise.com';
 

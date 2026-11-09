@@ -77,7 +77,8 @@ import { historyItemFor, isVisibleHistory, recoverMissingHistory } from './utils
 import { usePolls } from './hooks/usePolls';
 import PollsCard from './components/PollsCard';
 import ProfilePage from './components/ProfilePage';
-import { startGameFromPoll, startingPlayers } from './utils/polls';
+import { pollFromPath, startGameFromPoll, startingPlayers } from './utils/polls';
+import { disablePush, enablePush, notifyEvent } from './utils/push';
 import GroupsPage from './components/GroupsPage';
 import { groupMembers, memberName, renameGroupMember } from './utils/groups';
 import { useSplitwiseAccess } from './hooks/useSplitwiseAccess';
@@ -178,6 +179,44 @@ export default function App() {
   const [selectedRegisteredUserIds, setSelectedRegisteredUserIds] = useState<string[]>([]);
   const groups = useGroups(identity?.uid);
   const polls = usePolls(groups);
+  // Push notifications on this browser: refreshed quietly once allowed, turned on from Settings.
+  const [pushOn, setPushOn] = useState(false);
+  useEffect(() => {
+    if (!identity) return;
+    void enablePush(identity.uid, false).then(setPushOn).catch(() => setPushOn(false));
+  }, [identity?.uid]);
+  async function turnOnPush() {
+    if (!identity) return;
+    try {
+      const on = await enablePush(identity.uid, true);
+      setPushOn(on);
+      if (!on) setAdminMessage('Notifications are blocked or not supported in this browser.');
+    } catch (error) {
+      console.error('push setup failed', error);
+      setAdminMessage('Couldn’t turn on notifications. Try again.');
+    }
+  }
+  // A shared poll link (/poll/{group}/{poll}): open its votes once signed in and the poll has loaded.
+  const [linkedPoll, setLinkedPoll] = useState(() => pollFromPath(window.location.pathname));
+  const [openPollId, setOpenPollId] = useState('');
+  useEffect(() => {
+    if (pollFromPath(window.location.pathname)) window.history.replaceState(null, '', `/${window.location.hash}`);
+  }, []);
+  useEffect(() => {
+    if (!linkedPoll || !identity) return;
+    if (polls.some((p) => p.id === linkedPoll.pollId)) {
+      setPage('home');
+      setOpenPollId(linkedPoll.pollId);
+      setLinkedPoll(null);
+      return;
+    }
+    // Not among your groups' open polls (closed, deleted, or not your group): say so after a moment.
+    const timer = window.setTimeout(() => {
+      setAdminMessage('That poll is closed, or it isn’t in one of your groups.');
+      setLinkedPoll(null);
+    }, 5000);
+    return () => window.clearTimeout(timer);
+  }, [linkedPoll, identity, polls]);
   // Every account shows its current display name in every group: yours in all your groups, and, in groups you
   // admin, everyone else's too (so a changed name shows without waiting for that person).
   useEffect(() => {
@@ -727,6 +766,7 @@ export default function App() {
   }
 
   async function logoutAccount() {
+    if (identity) await disablePush(identity.uid);
     window.location.hash = '';
     setRoom(null);
     setRoomId('');
@@ -1840,6 +1880,30 @@ async function reopenBuyins() {
                 </button>
               </section>
               <section className="card">
+                <div className="section-title">Notifications</div>
+                <p className="muted small-copy">New polls in your groups, games starting, poll reminders, and being added to a group.</p>
+                {pushOn ? (
+                  <div className="input-row">
+                    <span className="tiny muted">On for this browser.</span>
+                    <button
+                      className="link-btn"
+                      onClick={() =>
+                        void notifyEvent({ event: 'test' }).then((sent) =>
+                          setAdminMessage(sent ? 'Test sent: it should appear in a moment.' : 'Couldn’t send the test. Try turning notifications on again.')
+                        )
+                      }
+                    >
+                      Send a test notification
+                    </button>
+                  </div>
+                ) : (
+                  <button className="btn btn-green btn-block" onClick={() => void turnOnPush()}>
+                    Turn on notifications
+                  </button>
+                )}
+                <div className="tiny muted">On iPhone, add this site to your Home Screen first (Share → Add to Home Screen).</div>
+              </section>
+              <section className="card">
                 <div className="section-title">Theme</div>
                 <ThemePicker />
               </section>
@@ -1864,7 +1928,7 @@ async function reopenBuyins() {
             </section>
           ) : (
             <>
-              {identity && <PollsCard polls={polls} groups={groups} identity={identity} onStartGame={(poll) => void startPollGame(poll)} onNotice={setAdminMessage} />}
+              {identity && <PollsCard polls={polls} groups={groups} identity={identity} onStartGame={(poll) => void startPollGame(poll)} onNotice={setAdminMessage} openPollId={openPollId} />}
               {liveList}
               <section className="card">
                 <div className="section-title">New tournament</div>

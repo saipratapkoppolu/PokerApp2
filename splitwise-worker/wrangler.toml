@@ -15,3 +15,7 @@ GROUP_ID = "66133405"
 #   npx wrangler secret put SPLITWISE_CLIENT_ID
 #   npx wrangler secret put SPLITWISE_CLIENT_SECRET
 #   npx wrangler secret put SESSION_SECRET
+
+# Poll reminders ("starts in an hour"), see src/push.js.
+[triggers]
+crons = ["*/15 * * * *"]

@@ -3,6 +3,7 @@ import { db } from '../firebase';
 import type { GamePoll, PlayerGroup, PollAnswer, PollVote, RoomState, UserIdentity } from '../types/app';
 import { normalizeName, sameName } from './format';
 import { makeId } from './room';
+import { notifyEvent } from './push';
 
 /** "Who's in?" polls, the same shape as the iOS app (groupPolls/{groupId}/{pollId}). */
 
@@ -41,14 +42,16 @@ export function canManagePoll(poll: GamePoll, groups: PlayerGroup[], uid: string
   return poll.createdBy?.uid === uid || groups.find((g) => g.id === poll.groupId)?.admins?.[uid] === true;
 }
 
-export function createPoll(groupId: string, title: string, startsAt: number, me: UserIdentity) {
+/** Posts the poll and, once saved, notifies the group. */
+export async function createPoll(groupId: string, title: string, startsAt: number, me: UserIdentity) {
   const id = makeId();
-  return set(ref(db, `groupPolls/${groupId}/${id}`), {
+  await set(ref(db, `groupPolls/${groupId}/${id}`), {
     title: normalizeName(title).slice(0, 40),
     startsAt,
     createdAt: Date.now(),
     createdBy: { uid: me.uid, displayName: me.displayName },
   });
+  void notifyEvent({ event: 'poll', groupId, pollId: id });
 }
 
 /** Your own answer (`key`: your uid; the rules refuse answers for anyone else). */
@@ -60,10 +63,30 @@ export function deletePoll(poll: GamePoll) {
   return set(ref(db, `groupPolls/${poll.groupId}/${poll.id}`), null);
 }
 
-/** The new game and the poll's link to it, in one write. */
-export function startGameFromPoll(poll: GamePoll, room: RoomState) {
-  return update(ref(db), {
+/** The new game and the poll's link to it, in one write; then everyone in or buying in is told. */
+export async function startGameFromPoll(poll: GamePoll, room: RoomState) {
+  await update(ref(db), {
     [`rooms/${room.roomId}`]: room,
     [`groupPolls/${poll.groupId}/${poll.id}/roomId`]: room.roomId,
   });
+  void notifyEvent({ event: 'game', groupId: poll.groupId, pollId: poll.id, roomId: room.roomId });
+}
+
+const SITE = 'https://poker-tracker-2ab9c.web.app';
+
+/** The poll's link, for sharing: opens the iOS app when it's installed, the website otherwise. */
+export function pollLink(poll: GamePoll) {
+  return `${SITE}/poll/${poll.groupId}/${poll.id}`;
+}
+
+/** The poll a link points to (/poll/{groupId}/{pollId}), if it's one. */
+export function pollFromPath(path: string): { groupId: string; pollId: string } | null {
+  const match = path.match(/^\/poll\/([^/]+)\/([^/]+)\/?$/);
+  return match ? { groupId: match[1], pollId: match[2] } : null;
+}
+
+/** Shares the poll to WhatsApp: its title, time and link. */
+export function shareToWhatsApp(poll: GamePoll, when: string) {
+  const text = `${poll.title}: who’s in? ${when}\n${pollLink(poll)}`;
+  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
 }

@@ -1,0 +1,10 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["5ZSAPF5XDN.com.ksp.PokerTrackeriOS"],
+        "components": [{ "/": "/poll/*", "comment": "A shared poll opens in the iOS app" }]
+      }
+    ]
+  }
+}

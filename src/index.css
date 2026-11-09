@@ -2910,3 +2910,5 @@ input[type='time']::-webkit-date-and-time-value {
 }
 .member-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .member-avatar.tappable, .player-name.tappable { cursor: pointer; }
+.poll-links { justify-content: flex-start; gap: 16px; }
+.poll-links .link-btn { margin-left: 0; }

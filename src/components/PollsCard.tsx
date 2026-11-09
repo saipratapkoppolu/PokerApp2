@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CalendarClock, Check, Play, Trash2 } from 'lucide-react';
 import type { GamePoll, PlayerGroup, PollAnswer, UserIdentity } from '../types/app';
-import { POLL_ANSWERS, answerPoll, deletePoll, isOpenPoll, canManagePoll, votesAnswering } from '../utils/polls';
+import { POLL_ANSWERS, answerPoll, canManagePoll, deletePoll, isOpenPoll, shareToWhatsApp, votesAnswering } from '../utils/polls';
 
 type Props = {
   polls: GamePoll[];
@@ -9,15 +9,20 @@ type Props = {
   identity: UserIdentity;
   onStartGame: (poll: GamePoll) => void;
   onNotice: (message: string) => void;
+  /** A poll opened from a shared link: its votes open. */
+  openPollId?: string;
 };
 
 const when = (ms: number) =>
   new Date(ms).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 
 /** "Who's in?" polls from your groups: answer In, Buy-in or Out for yourself, or start the game (you become its admin). Whoever posted it and the group's admins can delete it. */
-export default function PollsCard({ polls, groups, identity, onStartGame, onNotice }: Props) {
+export default function PollsCard({ polls, groups, identity, onStartGame, onNotice, openPollId }: Props) {
   const open = polls.filter((poll) => isOpenPoll(poll));
   const [expanded, setExpanded] = useState('');
+  useEffect(() => {
+    if (openPollId) setExpanded(openPollId);
+  }, [openPollId]);
   if (open.length === 0) return null;
 
   async function save(action: () => Promise<unknown>) {
@@ -72,9 +77,14 @@ export default function PollsCard({ polls, groups, identity, onStartGame, onNoti
                   );
                 })}
               </div>
-              <button className="link-btn poll-toggle" onClick={() => setExpanded(poll.id)}>
-                View votes
-              </button>
+              <div className="input-row poll-links">
+                <button className="link-btn poll-toggle" onClick={() => setExpanded(poll.id)}>
+                  View votes
+                </button>
+                <button className="link-btn" onClick={() => shareToWhatsApp(poll, when(poll.startsAt))}>
+                  Share to WhatsApp
+                </button>
+              </div>
               {showsVotes && (
                 <div className="modal-backdrop bottom" onClick={() => setExpanded('')}>
                   <div className="modal-card" role="dialog" aria-label={`Votes for ${poll.title}`} onClick={(e) => e.stopPropagation()}>
