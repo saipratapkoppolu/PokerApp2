@@ -1748,7 +1748,7 @@ select {
   color: var(--red);
 }
 
-/* ---------- Compact live view (up to 12 players) ---------- */
+/* ---------- Compact live view (up to 11 players) ---------- */
 
 .stats-strip {
   display: grid;

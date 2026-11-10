@@ -9,7 +9,7 @@ import { randomTournamentName } from './names';
 import { DEFAULT_LATE_REG_LEVEL, houseLevels, initialClock, preferredMinutes } from './blinds';
 
 export const SUITS = ['♠', '♥', '♦', '♣'];
-export const MAX_PLAYERS = 12;
+export const MAX_PLAYERS = 11;
 
 /** Newest timestamp seen on a room (events, clock, creation); 0 if it has none. */
 export function lastActivity(room: RoomState) {

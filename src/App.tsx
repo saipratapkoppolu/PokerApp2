@@ -2156,7 +2156,7 @@ async function reopenBuyins() {
               <div className="section-head">
                 <div className="section-title">Players</div>
                 <span className="pill">
-                  {players.length}/{MAX_PLAYERS}
+                  {players.length}
                 </span>
               </div>
 
