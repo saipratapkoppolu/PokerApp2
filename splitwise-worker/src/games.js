@@ -56,7 +56,11 @@ export async function visible(request, env, cors) {
 
 /** Old games out, lost history rows back. Reads every room once a day. */
 export async function upkeep(env) {
-  const [rooms, history] = await Promise.all([read(env, 'rooms'), read(env, 'history')]);
+  const [rooms, history, activityTokens] = await Promise.all([
+    read(env, 'rooms'),
+    read(env, 'history'),
+    read(env, 'liveActivityTokens'),
+  ]);
   const now = Date.now();
   const cutoff = now - SWEEP_AFTER_MS;
   const removals = {};
@@ -78,6 +82,10 @@ export async function upkeep(env) {
   for (const [id, room] of Object.entries(rooms || {})) {
     if (!room || room.phase !== 'end' || history?.[id] || `rooms/${id}` in removals) continue;
     changes[`history/${id}`] = recoveredItem({ ...room, roomId: room.roomId || id });
+  }
+  // Live Activity tokens of games no longer being played (abandoned, finished without the worker hearing, or gone).
+  for (const id of Object.keys(activityTokens || {})) {
+    if (rooms?.[id]?.phase !== 'game' || `rooms/${id}` in removals) changes[`liveActivityTokens/${id}`] = null;
   }
   // One write, however many rows: a worker run may only make a limited number of requests.
   if (Object.keys(changes).length > 0) await patch(env, changes);

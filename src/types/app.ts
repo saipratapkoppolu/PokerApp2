@@ -7,6 +7,8 @@ export type Player = {
   suit: string;
   /** The admin took them out of a running tournament: out like a bust, no buy-in again. Absent = not kicked. */
   kicked?: boolean;
+  /** Their account, when they have one (added from a group, a poll or a suggestion): shows their picture. */
+  uid?: string;
 };
 
 export type PayoutKey = 'first' | 'second' | 'third' | 'fourth' | 'fifth' | 'sixth';
@@ -49,6 +51,7 @@ export type RoomEventType =
   | 'clock_started'
   | 'clock_paused'
   | 'level_changed'
+  | 'time_added'
   | 'blinds_updated'
   | 'title_changed';
 
@@ -148,6 +151,8 @@ export type RoomState = {
     currency?: string;
   };
   clock?: ClockState;
+  /** The "Who's in?" poll this game was started from: its players hear when the tournament starts. */
+  poll?: { groupId: string; pollId: string };
   users: UserIdentity[];
   players: Player[];
   events: RoomEvent[];
@@ -220,6 +225,17 @@ export type PlayerGroup = {
   createdBy: UserIdentity;
   members: Record<string, GroupMember>;
   admins: Record<string, true>;
+  /** House rules: any member can edit them; shows who did, and when. */
+  about?: GroupAbout;
+  /** When the group's picture (groupPhotos/{id}) last changed; unset without one. */
+  photoUpdatedAt?: number;
+};
+
+/** groups/{id}/about. */
+export type GroupAbout = {
+  text: string;
+  editedBy: { uid: string; displayName: string };
+  editedAt: number;
 };
 
 /** An answer to a "Who's in?" poll: in from the start, out, or buying in after the start. */

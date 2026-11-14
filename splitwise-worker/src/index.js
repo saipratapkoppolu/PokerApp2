@@ -20,6 +20,9 @@ const API_ALLOWED = new Set(['GET get_current_user', 'GET get_groups', 'POST cre
 import { visible, upkeep } from './games.js';
 import { notify, remind } from './push.js';
 
+/** One per game: sends its blinds-up alerts as each level ends (see clock.js). */
+export { RoomClock } from './clock.js';
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);

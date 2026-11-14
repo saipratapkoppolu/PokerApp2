@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { CalendarClock, Check, Play, Trash2 } from 'lucide-react';
 import type { GamePoll, PlayerGroup, PollAnswer, UserIdentity } from '../types/app';
-import { POLL_ANSWERS, answerPoll, canManagePoll, deletePoll, isOpenPoll, shareToWhatsApp, votesAnswering } from '../utils/polls';
+import AccountPhoto from './AccountPhoto';
+import { POLL_ANSWERS, answerPoll, canManagePoll, canStartGame, deletePoll, isOpenPoll, shareToWhatsApp, votesAnswering } from '../utils/polls';
 
 type Props = {
   polls: GamePoll[];
@@ -98,13 +99,26 @@ export default function PollsCard({ polls, groups, identity, onStartGame, onNoti
                             <div className="poll-votes-label">
                               {label} · {votes.length}
                             </div>
-                            <div className="tiny muted">{votes.length ? votes.map(([, vote]) => vote.name).join(', ') : 'No one yet'}</div>
+                            {votes.length ? (
+                              <div className="poll-voters">
+                                {votes.map(([key, vote]) => (
+                                  <span key={key} className="poll-voter">
+                                    <AccountPhoto uid={key} />
+                                    {vote.name}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="tiny muted">No one yet</div>
+                            )}
                           </div>
                         );
                       })}
                       <div className="input-row">
                         <button
                           className="btn btn-green"
+                          disabled={!canStartGame(poll)}
+                          title={canStartGame(poll) ? undefined : 'At least 2 people need to be in or buying in.'}
                           onClick={() => {
                             setExpanded('');
                             onStartGame(poll);

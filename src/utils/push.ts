@@ -42,7 +42,7 @@ export async function disablePush(uid: string) {
 }
 
 /** Asks the worker to notify about something you just did (it checks and builds the message itself). */
-export async function notifyEvent(body: { event: 'poll' | 'game' | 'added' | 'test'; groupId?: string; pollId?: string; roomId?: string; uids?: string[] }): Promise<number> {
+export async function notifyEvent(body: { event: 'poll' | 'vote' | 'game' | 'clock' | 'added' | 'test'; groupId?: string; pollId?: string; roomId?: string; uids?: string[] }): Promise<number> {
   const user = auth.currentUser;
   if (!WORKER || !user) return 0;
   try {

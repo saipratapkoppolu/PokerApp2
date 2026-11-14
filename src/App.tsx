@@ -78,15 +78,19 @@ import { refreshVisible, subscribeVisible } from './utils/visible';
 import { usePolls } from './hooks/usePolls';
 import PollsCard from './components/PollsCard';
 import ProfilePage from './components/ProfilePage';
-import { pollFromPath, startGameFromPoll, startingPlayers } from './utils/polls';
+import { canStartGame, pollFromPath, startGameFromPoll, startingPlayers } from './utils/polls';
 import { disablePush, enablePush, notifyEvent, pushSupported } from './utils/push';
 import GroupsPage from './components/GroupsPage';
+import PlayerIcon from './components/PlayerIcon';
+import RegisteredPlayerSearch from './components/RegisteredPlayerSearch';
+import { NameTakenError, claimName, createProfile, findAccounts, freeName, isNameAvailable } from './utils/profile';
+import AccountPhoto from './components/AccountPhoto';
 import { groupMembers, memberName, renameGroupMember } from './utils/groups';
 import { useSplitwiseAccess } from './hooks/useSplitwiseAccess';
 import { useSplitwiseMembers } from './hooks/useSplitwiseMembers';
 import { blindsLabel, chips, computeClock, formatClock, levelIndexForNumber, normalizeLevels, rememberMinutes } from './utils/blinds';
 import { randomTournamentName } from './utils/names';
-import { playSound, requestNotificationPermission, showSystemNotification, stopSong, unlockAudio, vibrate } from './utils/alerts';
+import { playSound, requestNotificationPermission, showSystemNotification, speak, stopSong, unlockAudio, vibrate } from './utils/alerts';
 
 import {
   fmt,
@@ -177,7 +181,6 @@ export default function App() {
   const [loadingRoom, setLoadingRoom] = useState(false);
   const [allHistory, setHistory] = useState<HistoryItem[]>([]);
   const [registeredUsers, setRegisteredUsers] = useState<UserProfile[]>([]);
-  const [selectedRegisteredUserIds, setSelectedRegisteredUserIds] = useState<string[]>([]);
   const groups = useGroups(identity?.uid);
   const polls = usePolls(groups);
   // Push notifications on this browser: refreshed quietly once allowed, turned on from Settings.
@@ -311,6 +314,10 @@ export default function App() {
   const noFinishers: Record<PayoutKey, string> = { first: '', second: '', third: '', fourth: '', fifth: '', sixth: '' };
   const [finishers, setFinishers] = useState<Record<PayoutKey, string>>(noFinishers);
 
+  // An account being registered here: its profile once written (null: registration failed), so the sign-in that
+  // creating the account sets off waits for it instead of making a profile of its own.
+  const registeringRef = useRef<Promise<UserProfile | null> | null>(null);
+
   useEffect(() => {
   const unsubAuth = onAuthStateChanged(auth, async (firebaseUser) => {
     try {
@@ -336,11 +343,19 @@ export default function App() {
         // Profiles written by older versions included the email: remove it from your own profile.
         if (profile.email !== undefined) await update(ref(db, `users/${firebaseUser.uid}`), { email: null });
         setIdentity({ uid: firebaseUser.uid, displayName: profile.displayName });
+        // Accounts from before names were unique: claim the name now, if nobody else has.
+        void claimName(firebaseUser.uid, profile.displayName);
       } else {
-        const displayName =
-          firebaseUser.displayName ||
-          firebaseUser.email?.split('@')[0] ||
-          'Player';
+        const registering = registeringRef.current;
+        if (registering) {
+          const made = await registering;
+          if (made) setIdentity({ uid: made.uid, displayName: made.displayName });
+          return;
+        }
+        const displayName = await freeName(
+          firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Player',
+          firebaseUser.uid,
+        );
 
         const fallbackProfile: UserProfile = {
           uid: firebaseUser.uid,
@@ -350,7 +365,7 @@ export default function App() {
           active: true,
         };
 
-        await set(ref(db, `users/${firebaseUser.uid}`), fallbackProfile);
+        await createProfile(fallbackProfile);
 
         setIdentity({
           uid: fallbackProfile.uid,
@@ -541,10 +556,17 @@ export default function App() {
       }
       if (event.type !== 'knockout_recorded') return;
       const meta = (event.meta ?? {}) as { details?: string; eliminatedNames?: string; winnerNames?: string; bountyText?: string; rebuys?: string[] };
-      const details = (meta.details ?? `${meta.eliminatedNames} by ${meta.winnerNames}`).replace(/; /g, ' · ');
+      // Who was knocked out by whom: "Dan by Ann; Eve by Bob" → "Dan was knocked out by Ann · Eve was knocked out by Bob".
+      const sentence = (meta.details ?? `${meta.eliminatedNames} by ${meta.winnerNames}`)
+        .split('; ')
+        .map((part) => part.replace(' by ', ' was knocked out by '))
+        .join(' · ');
+      const details = sentence;
       const rebuys = meta.rebuys?.length ? ` · ${meta.rebuys.join(', ')} ${meta.rebuys.length === 1 ? 'rebuys' : 'rebuy'}` : '';
       const message = `💀 Knockout: ${details}${meta.bountyText ? ` · ${meta.bountyText}` : ''}${rebuys}`;
       setAdminMessage(message);
+      // Read out on screen, as the iPhone app does.
+      if (alertsEnabled && document.visibilityState === 'visible') speak(sentence.replace(/ · /g, '. '));
       // Notification only (no sound) when the app is in the background.
       if (alertsEnabled && document.visibilityState === 'hidden') void showSystemNotification('💀 Knockout', message.replace('💀 Knockout: ', ''));
     });
@@ -638,7 +660,8 @@ export default function App() {
   const splitwiseAllowed = useSplitwiseAccess(identity?.uid);
   const splitwiseMembers = useSplitwiseMembers(showPayoutModal && splitwiseAllowed);
   const distributed = PAYOUT_KEYS.slice(0, payoutMode).reduce((sum, key) => sum + (Number(payouts[key]) || 0), 0);
-  const remaining = prizePool - tipAmount - distributed;
+  // To the cent: sums of decimals (33.33 + …) aren't exact in floating point.
+  const remaining = Math.round((prizePool - tipAmount - distributed) * 100) / 100;
 
   // Spent / earned per player for the Splitwise expense (results page).
   const splitRows = splitwiseRows(
@@ -653,7 +676,6 @@ export default function App() {
   );
 
   const shareLink = roomId ? `${window.location.origin}${window.location.pathname}#room=${roomId}` : '';
-  const selectedRegisteredUsers = registeredUsers.filter((user) => selectedRegisteredUserIds.includes(user.uid));
 
 
   function clearAuthInputs() {
@@ -714,8 +736,15 @@ export default function App() {
 
     setAuthLoading(true);
     setAuthMessage('');
+    let registered: (profile: UserProfile | null) => void = () => undefined;
+    registeringRef.current = new Promise((resolve) => {
+      registered = resolve;
+    });
 
     try {
+      // Display names are unique: checked before the account is made, and again (older profiles are only readable
+      // signed in) right after; an account whose name turned out to be taken is removed again.
+      if (!(await isNameAvailable(displayName))) throw new NameTakenError();
       const cred = await createUserWithEmailAndPassword(auth, email, password);
       await cred.user.getIdToken(true);
 
@@ -727,15 +756,28 @@ export default function App() {
         active: true,
       };
 
-      await set(ref(db, `users/${cred.user.uid}`), profile);
+      try {
+        if (!(await isNameAvailable(displayName, cred.user.uid))) throw new NameTakenError();
+        await createProfile(profile);
+      } catch (error) {
+        await cred.user.delete().catch(() => undefined);
+        throw error;
+      }
+      registered(profile);
 
       clearAuthInputs();
       setAuthMode('login');
       setAuthMessage('Account created successfully. Please log in.');
     } catch (error: any) {
-      console.error('registerAccount error', error);
-      setAuthMessage(`${error?.code ?? 'unknown-error'}: ${error?.message ?? 'Registration failed.'}`);
+      registered(null);
+      if (error instanceof NameTakenError) {
+        setAuthMessage(error.message);
+      } else {
+        console.error('registerAccount error', error);
+        setAuthMessage(`${error?.code ?? 'unknown-error'}: ${error?.message ?? 'Registration failed.'}`);
+      }
     } finally {
+      registeringRef.current = null;
       setAuthLoading(false);
     }
   }
@@ -785,7 +827,6 @@ export default function App() {
     setRoomId('');
     setIsAdminUnlocked(false);
     await signOut(auth);
-    setSelectedRegisteredUserIds([]);
     setNameInput('');
     setAdminMessage('');
   }
@@ -802,7 +843,7 @@ export default function App() {
 
   /** A "Who's in?" poll's game: everyone in or buying in as players, saved with the poll's link to it. */
   async function startPollGame(poll: GamePoll) {
-    if (!identity) return;
+    if (!identity || !canStartGame(poll)) return;
     const names = startingPlayers(poll);
     if (names.length > MAX_PLAYERS) {
       setAdminMessage(`Only ${MAX_PLAYERS} players fit at a table. Mark some as Out first.`);
@@ -810,14 +851,21 @@ export default function App() {
     }
     const newRoom = defaultRoom(makeRoomId(), identity);
     newRoom.title = poll.title;
-    newRoom.players = names.map((name, index) => ({
-      id: makeId(),
-      name,
-      buyins: 1,
-      bountyBalance: 0,
-      active: true,
-      suit: SUITS[index % SUITS.length],
-    }));
+    newRoom.poll = { groupId: poll.groupId, pollId: poll.id };
+    // Votes are keyed by account, so everyone who answered brings their picture.
+    const voterUid = (name: string) => Object.entries(poll.votes ?? {}).find(([, vote]) => sameName(vote.name, name))?.[0];
+    newRoom.players = names.map((name, index) => {
+      const uid = voterUid(name);
+      return {
+        id: makeId(),
+        name,
+        buyins: 1,
+        bountyBalance: 0,
+        active: true,
+        suit: SUITS[index % SUITS.length],
+        ...(uid ? { uid } : {}),
+      };
+    });
     newRoom.events = [createEvent('room_created', identity)];
     try {
       await startGameFromPoll(poll, newRoom);
@@ -838,7 +886,6 @@ export default function App() {
     setRoomTab('table');
     setIsAdminUnlocked(true);
     setUndoStack([]);
-    setSelectedRegisteredUserIds([]);
     setAdminMessage('');
     setShowAccessBox(false);
     setShowChangePinBox(false);
@@ -858,7 +905,6 @@ export default function App() {
     setIsAdminUnlocked(false);
     setAdminMessage('');
     setUndoStack([]);
-    setSelectedRegisteredUserIds([]);
     setNeedsPinSetup(false);
     setSetupPinInput('');
     setSetupPinConfirmInput('');
@@ -894,12 +940,13 @@ export default function App() {
     return players.some((p) => sameName(p.name, name));
   }
 
-  function toggleRegisteredPlayerSelection(uid: string) {
-    setSelectedRegisteredUserIds((prev) => (prev.includes(uid) ? prev.filter((x) => x !== uid) : [...prev, uid]));
-  }
-
-  async function addSelectedRegisteredPlayers() {
-    if (await addPlayersByName(selectedRegisteredUsers.map((user) => user.displayName))) setSelectedRegisteredUserIds([]);
+  /** The account of someone in your groups with this name, if any: their picture shows in the game. */
+  function accountUid(name: string): string | undefined {
+    for (const group of groups) {
+      const member = Object.values(group.members ?? {}).find((m) => m.uid && sameName(m.name, name));
+      if (member?.uid) return member.uid;
+    }
+    return undefined;
   }
 
   async function addSelectedGroupPlayers() {
@@ -929,23 +976,42 @@ export default function App() {
       return false;
     }
 
-    const newPlayers: Player[] = namesToAdd.map((name, index) => ({
-      id: makeId(),
-      name,
-      buyins: 1,
-      bountyBalance: 0,
-      active: true,
-      suit: SUITS[(players.length + index) % SUITS.length],
-    }));
+    // Accounts first: from your groups, else searched by name (see findAccountUid).
+    const uids = await Promise.all(namesToAdd.map(async (name) => accountUid(name) ?? (await findAccountUid(name))));
+    const newPlayers: Player[] = namesToAdd.map((name, index) => {
+      const uid = uids[index];
+      return {
+        id: makeId(),
+        name,
+        buyins: 1,
+        bountyBalance: 0,
+        active: true,
+        suit: SUITS[(players.length + index) % SUITS.length],
+        ...(uid ? { uid } : {}),
+      };
+    });
     const nextEvents = namesToAdd.map((name) => createEvent('player_added', identity, { playerName: name }));
     await patchRoom({ players: [...players, ...newPlayers], events: [...nextEvents, ...events] });
     setAdminMessage('');
     return true;
   }
 
-  async function addPlayer() {
+  /** The only account with this exact display name, searched before a player is added by name, so their login is
+   *  saved with them (their picture follows it). None offline, when several accounts share the name, or after 3 s. */
+  async function findAccountUid(name: string): Promise<string | undefined> {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return undefined;
+    const search = findAccounts(name)
+      .then((found) => (found.length === 1 && found[0].uid ? found[0].uid : undefined))
+      .catch(() => undefined);
+    const timeout = new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 3000));
+    return Promise.race([search, timeout]);
+  }
+
+  /** Adds one player: a guest as typed (no account), or a registered player with their account (`uid`, from the
+   *  registered player search). */
+  async function addPlayer(rawName: string, uid?: string) {
     if (!room || !isAdminUnlocked || !identity) return;
-    const name = normalizeName(nameInput);
+    const name = normalizeName(rawName);
     if (!name) return;
     if (players.length >= MAX_PLAYERS) {
       setAdminMessage(`Maximum ${MAX_PLAYERS} players allowed in one tournament room.`);
@@ -962,11 +1028,17 @@ export default function App() {
       bountyBalance: 0,
       active: true,
       suit: SUITS[players.length % SUITS.length],
+      ...(uid ? { uid } : {}),
     };
     const event = createEvent('player_added', identity, { playerName: name });
     await patchRoom({ players: [...players, newPlayer], events: [event, ...events] });
-    setNameInput('');
     setAdminMessage('');
+  }
+
+  async function addGuest() {
+    const name = nameInput;
+    setNameInput('');
+    await addPlayer(name);
   }
 
   /** The PIN lives in roomPins/, which guests watching the public room data cannot read. */
@@ -1024,6 +1096,9 @@ export default function App() {
     setUndoStack([]);
     const clock: ClockState = { running: true, levelIndex: 0, levelElapsedMs: 0, startedAt: serverNow() };
     await patchRoom({ phase: 'game', clock, events: [event, ...events] });
+    clockChanged();
+    // A game from a poll: its players hear that it has started.
+    if (room.poll) void notifyEvent({ event: 'game', groupId: room.poll.groupId, pollId: room.poll.pollId, roomId: room.roomId });
     setPage('live');
     setRoomTab('table');
   }
@@ -1165,6 +1240,8 @@ export default function App() {
         ...(closing ? { settings: { ...room.settings, buyinsClosed: true } } : {}),
         events: closedEvent ? [closedEvent, event, ...events] : [event, ...events],
       });
+      // Players left changes on everyone's Live Activity.
+      clockChanged();
 
       setUndoStack((prev) => [...prev, snapshot].slice(-10));
       setElimModal(false);
@@ -1200,6 +1277,7 @@ export default function App() {
       players: players.map((p) => (p.id === target.id ? { ...p, active: false, kicked: true } : p)),
       events: [event, ...events],
     });
+    clockChanged();
     setUndoStack((prev) => [...prev, snapshot].slice(-10));
     setKickModal(false);
   }
@@ -1217,6 +1295,7 @@ await patchRoom({
   ...(lastUndo.settings ? { settings: { ...room.settings, ...lastUndo.settings } } : {}),
   events: [undoEvent, ...events.filter((event) => !lastUndo.eventIdsToRemove.includes(event.id))],
 });
+clockChanged();
 
 setUndoStack((prev) => prev.slice(0, -1));
 setAdminMessage(lastUndo.label.startsWith('Undo close buy-ins') ? 'Buy-ins reopened.' : 'Last knockout action undone.');
@@ -1412,6 +1491,8 @@ async function reopenBuyins() {
     // The result and its history row in one write, so both are saved or neither.
     const historyItem = historyItemFor(room, Date.now(), winner);
     await patchRoom({ phase: 'end', payouts, events: [event, ...events] }, { [`history/${room.roomId}`]: historyItem });
+    // The players' Live Activities close.
+    clockChanged();
     // History comes from the worker: ask again now the game is saved, so it shows straight away.
     void refreshVisible();
     setShowPayoutModal(false);
@@ -1435,6 +1516,7 @@ async function reopenBuyins() {
       bountyBalance: 0,
       active: true,
       suit: SUITS[index % SUITS.length],
+      ...(p.uid ? { uid: p.uid } : {}),
     }));
     const createdEvent = createEvent('room_created', identity);
     base.events = [createdEvent];
@@ -1464,10 +1546,17 @@ async function reopenBuyins() {
     return level.isBreak ? 'Break' : `Level ${number} (${blindsLabel(level)})`;
   }
 
-  async function writeClock(next: ClockState, eventType?: 'clock_started' | 'clock_paused' | 'level_changed') {
+  async function writeClock(next: ClockState, eventType?: 'clock_started' | 'clock_paused' | 'level_changed' | 'time_added') {
     if (!isAdminUnlocked || !identity) return;
     const event = eventType ? createEvent(eventType, identity, { level: levelName(next.levelIndex) }) : null;
     await patchRoom({ clock: next, ...(event ? { events: [event, ...events] } : {}) });
+    clockChanged();
+  }
+
+  /** After the game starts, any clock change, knockouts and the finish: the worker plans the next blinds-up alert
+   *  and updates the players' Live Activities (level, time, players left), or closes them once the game is over. */
+  function clockChanged() {
+    if (room) void notifyEvent({ event: 'clock', roomId: room.roomId });
   }
 
   function startClock() {
@@ -1502,12 +1591,15 @@ async function reopenBuyins() {
   }
 
   function addMinute() {
-    return writeClock({
-      running: clockView.running,
-      levelIndex: clockView.levelIndex,
-      levelElapsedMs: clockView.elapsedMs - 60_000,
-      startedAt: clockView.running ? serverNow() : null,
-    });
+    return writeClock(
+      {
+        running: clockView.running,
+        levelIndex: clockView.levelIndex,
+        levelElapsedMs: clockView.elapsedMs - 60_000,
+        startedAt: clockView.running ? serverNow() : null,
+      },
+      'time_added'
+    );
   }
 
   async function saveLevels(next: BlindLevel[], message = 'Blind structure saved.') {
@@ -1525,6 +1617,7 @@ async function reopenBuyins() {
           }
         : undefined;
     await patchRoom({ settings: { ...room.settings, levels: next }, ...(clock ? { clock } : {}), events: [event, ...events] });
+    if (clock) clockChanged();
     setAdminMessage(message);
   }
 
@@ -1900,16 +1993,6 @@ async function reopenBuyins() {
                 {pushOn ? (
                   <div className="input-row">
                     <span className="tiny muted">On for this browser.</span>
-                    <button
-                      className="link-btn"
-                      onClick={() =>
-                        void notifyEvent({ event: 'test' }).then((sent) =>
-                          setAdminMessage(sent ? 'Test sent: it should appear in a moment.' : 'Couldn’t send the test. Try turning notifications on again.')
-                        )
-                      }
-                    >
-                      Send a test notification
-                    </button>
                   </div>
                 ) : (
                   <button className="btn btn-green btn-block" onClick={() => void turnOnPush()}>
@@ -2160,39 +2243,14 @@ async function reopenBuyins() {
                 </span>
               </div>
 
-              {registeredUsers.length > 0 && (
-                <>
-                  <div className="sub-label">From your groups</div>
-                  <div className="chip-grid">
-                    {registeredUsers.map((user) => {
-                      const selected = selectedRegisteredUserIds.includes(user.uid);
-                      const already = players.some((p) => sameName(p.name, user.displayName));
-                      return (
-                        <button
-                          key={user.uid}
-                          type="button"
-                          onClick={() => toggleRegisteredPlayerSelection(user.uid)}
-                          className={`select-chip ${selected ? 'selected' : ''}`}
-                          disabled={already || !isAdminUnlocked}
-                        >
-                          {already ? '✓ ' : selected ? '+ ' : ''}
-                          {user.displayName}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {selectedRegisteredUserIds.length > 0 && (
-                    <div className="btn-pair" style={{ marginTop: 10 }}>
-                      <button className="btn btn-ghost" onClick={() => setSelectedRegisteredUserIds([])}>
-                        Clear
-                      </button>
-                      <button className="btn btn-green" onClick={addSelectedRegisteredPlayers} disabled={!isAdminUnlocked || players.length >= MAX_PLAYERS}>
-                        <UserPlus size={16} /> Add {selectedRegisteredUserIds.length}
-                      </button>
-                    </div>
-                  )}
-                </>
-              )}
+              <div className="sub-label">Registered player</div>
+              <RegisteredPlayerSearch
+                groupAccounts={registeredUsers}
+                players={players}
+                disabled={!isAdminUnlocked}
+                full={players.length >= MAX_PLAYERS}
+                onAdd={addPlayer}
+              />
 
               {groups.length > 0 && (() => {
                 const group = groups.find((g) => g.id === setupGroupId) ?? (groups.length === 1 ? groups[0] : undefined);
@@ -2246,6 +2304,7 @@ async function reopenBuyins() {
                               className={`select-chip ${selected ? 'selected' : ''}`}
                               disabled={already || !isAdminUnlocked}
                             >
+                              <AccountPhoto uid={m.uid} />
                               {already ? '✓ ' : selected ? '+ ' : ''}
                               {m.name}
                             </button>
@@ -2268,11 +2327,12 @@ async function reopenBuyins() {
               })()}
 
               <div className="sub-label">Guest player</div>
+              <div className="muted search-hint">Guests play without an account: no picture or stats.</div>
               <form
                 className="input-row"
                 onSubmit={(e) => {
                   e.preventDefault();
-                  if (isAdminUnlocked) void addPlayer();
+                  if (isAdminUnlocked) void addGuest();
                 }}
               >
                 <input value={nameInput} onChange={(e) => setNameInput(e.target.value)} placeholder={isAdminUnlocked ? 'Guest name' : 'Unlock admin to add'} disabled={!isAdminUnlocked} autoComplete="off" />
@@ -2290,7 +2350,7 @@ async function reopenBuyins() {
                 <div className="stack-list">
                   {players.map((p) => (
                     <div className="player-row" key={p.id}>
-                      <span className={`suit ${p.suit === '♥' || p.suit === '♦' ? 'red' : ''}`}>{p.suit}</span>
+                      <PlayerIcon player={p} />
                       <span className="player-name">
                         {p.name}
                         {p.kicked && <span className="kicked-tag">kicked</span>}
@@ -2400,7 +2460,7 @@ async function reopenBuyins() {
                   const signed = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}€${fmt(Math.abs(n))}`;
                   const content = (
                     <>
-                      <span className={`suit ${p.suit === '♥' || p.suit === '♦' ? 'red' : ''}`}>{p.suit}</span>
+                      <PlayerIcon player={p} />
                       <span className="player-name">
                         {p.name}
                         {p.kicked ? (

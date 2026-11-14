@@ -3,9 +3,12 @@
  *
  *   POST /notify   { event, groupId, pollId?, roomId?, uids? }   (Authorization: Bearer <Firebase ID token>)
  *     poll   — a new "Who's in?" poll: every group member with an account, except the poster
+ *     vote   — someone answered a poll (or changed their answer): its poster, unless that's them
  *     game   — a game started from a poll: everyone who answered In or Buy-in, except who started it
  *     added  — accounts just added to a group: those accounts
  *     test   — a test from Settings: only to the caller
+ *     clock  — the admin started, paused, resumed or changed a game's clock: its alarm plans the next blinds-up
+ *              alert (see clock.js)   { event, roomId }
  *   cron     — an hour before a poll starts: members who haven't answered yet (once per poll)
  *
  * The worker reads the database with a service account (secret FIREBASE_SERVICE_ACCOUNT), which skips the
@@ -43,6 +46,16 @@ export async function notify(request, env, cors) {
     const sent = await send(env, { to: [uid], ...message });
     return json({ sent }, 200, cors);
   }
+  if (body.event === 'clock') {
+    const roomId = safeKey(body.roomId);
+    const room = roomId && (await read(env, `rooms/${roomId}`));
+    const isAdmin = room?.createdBy?.uid === uid || room?.currentAdmin?.uid === uid;
+    if (!room || !isAdmin) return json({ error: 'Not your game' }, 403, cors);
+    // The game's alarm plans the next blinds-up alert for the new clock (see clock.js).
+    const clock = env.CLOCKS.get(env.CLOCKS.idFromName(roomId));
+    await clock.fetch('https://clock/plan', { method: 'POST', body: JSON.stringify({ roomId, by: uid }) });
+    return json({ planned: true }, 200, cors);
+  }
   const groupId = safeKey(body.groupId);
   if (!groupId) return json({ error: 'Missing group' }, 400, cors);
 
@@ -64,6 +77,20 @@ export async function notify(request, env, cors) {
       thread: groupId,
       poll: { groupId, pollId },
     };
+  } else if (body.event === 'vote') {
+    const pollId = safeKey(body.pollId);
+    const poll = pollId && (await read(env, `groupPolls/${groupId}/${pollId}`));
+    const vote = poll?.votes?.[uid];
+    if (!poll || !vote) return json({ error: 'No answer from you' }, 403, cors);
+    const poster = poll.createdBy?.uid;
+    const answer = { in: 'is in', buyin: 'is buying in', out: 'is out' }[vote.answer] || 'answered';
+    message = {
+      to: poster && poster !== uid && accounts.includes(poster) ? [poster] : [],
+      title: poll.title,
+      body: `${caller} ${answer}.`,
+      link: `${SITE}/poll/${groupId}/${pollId}`,
+      thread: `${groupId}-${pollId}`,
+    };
   } else if (body.event === 'game') {
     const pollId = safeKey(body.pollId);
     const roomId = safeKey(body.roomId);
@@ -71,7 +98,9 @@ export async function notify(request, env, cors) {
       pollId ? read(env, `groupPolls/${groupId}/${pollId}`) : null,
       roomId ? read(env, `rooms/${roomId}`) : null,
     ]);
-    if (!poll || !room || poll.roomId !== roomId || room.createdBy?.uid !== uid) {
+    // Sent when the tournament starts, by its admin: the creator, or whoever took over with the PIN.
+    const isAdmin = room?.createdBy?.uid === uid || room?.currentAdmin?.uid === uid;
+    if (!poll || !room || poll.roomId !== roomId || !isAdmin) {
       return json({ error: 'Not your game' }, 403, cors);
     }
     const playing = Object.entries(poll.votes || {})
@@ -148,13 +177,14 @@ export async function remind(env) {
  * `thread` (the group), `poll` adds the In / Buy-in / Out actions (category POLL), and `urgent` (a game starting,
  * a reminder) is time-sensitive, so it comes through Focus.
  */
-async function send(env, { to, title, body, link, thread, poll, urgent }) {
+export async function send(env, { to, title, body, link, thread, poll, urgent, data, sound, expiresInSeconds }) {
   if (!to.length) return 0;
   const tokens = (await read(env, 'pushTokens')) || {};
   const access = await accessToken(env);
   let sent = 0;
   for (const uid of new Set(to)) {
     for (const [key, device] of Object.entries(tokens[uid] || {})) {
+      const expiry = expiresInSeconds ? String(Math.floor(Date.now() / 1000) + expiresInSeconds) : null;
       const res = await fetch(`https://fcm.googleapis.com/v1/projects/${PROJECT}/messages:send`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
@@ -162,18 +192,23 @@ async function send(env, { to, title, body, link, thread, poll, urgent }) {
           message: {
             token: device.token,
             notification: { title, body },
-            data: { link, ...(poll ? { groupId: poll.groupId, pollId: poll.pollId } : {}) },
+            data: { link, ...(poll ? { groupId: poll.groupId, pollId: poll.pollId } : {}), ...(data || {}) },
             apns: {
+              ...(expiry ? { headers: { 'apns-expiration': expiry } } : {}),
               payload: {
                 aps: {
-                  sound: 'default',
+                  sound: sound || 'default',
                   ...(thread ? { 'thread-id': thread } : {}),
                   ...(poll ? { category: 'POLL' } : {}),
                   'interruption-level': urgent ? 'time-sensitive' : 'active',
                 },
               },
             },
-            webpush: { fcm_options: { link }, notification: { icon: '/icon.svg' } },
+            webpush: {
+              ...(expiresInSeconds ? { headers: { TTL: String(expiresInSeconds) } } : {}),
+              fcm_options: { link },
+              notification: { icon: '/icon.svg' },
+            },
           },
         }),
       });
@@ -185,6 +220,42 @@ async function send(env, { to, title, body, link, thread, poll, urgent }) {
         console.log(`push to ${device.platform} failed: ${res.status} ${reason.slice(0, 300)}`);
         // Only devices FCM no longer knows are forgotten (not, say, a missing APNs key).
         if (res.status === 404 || reason.includes('UNREGISTERED')) await write(env, `pushTokens/${uid}/${key}`, null);
+      }
+    }
+  }
+  return sent;
+}
+
+/** Live Activity updates for a game (iPhones that registered its Live Activity, see liveActivityTokens/ in the
+ *  rules): `aps` is the update ({ event, content-state, … }). Through FCM, which needs the phone's FCM token with the
+ *  activity's own token. Tokens that no longer work are forgotten. */
+export async function sendLiveActivity(env, roomId, aps) {
+  const byUser = (await read(env, `liveActivityTokens/${roomId}`)) || {};
+  const entries = Object.entries(byUser).flatMap(([uid, devices]) =>
+    Object.entries(devices || {}).map(([key, device]) => ({ uid, key, device }))
+  );
+  if (!entries.length) return 0;
+  const access = await accessToken(env);
+  let sent = 0;
+  for (const { uid, key, device } of entries) {
+    if (!device?.token || !device?.fcm) continue;
+    const res = await fetch(`https://fcm.googleapis.com/v1/projects/${PROJECT}/messages:send`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${access}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: {
+          token: device.fcm,
+          apns: { live_activity_token: device.token, headers: { 'apns-priority': '10' }, payload: { aps } },
+        },
+      }),
+    });
+    if (res.ok) {
+      sent += 1;
+    } else {
+      const reason = await res.text();
+      console.log(`live activity update failed: ${res.status} ${reason.slice(0, 300)}`);
+      if (res.status === 404 || res.status === 400 || reason.includes('UNREGISTERED')) {
+        await write(env, `liveActivityTokens/${roomId}/${uid}/${key}`, null);
       }
     }
   }

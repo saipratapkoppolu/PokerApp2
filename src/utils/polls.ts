@@ -37,6 +37,11 @@ export function startingPlayers(poll: GamePoll): string[] {
   return names;
 }
 
+/** Start game needs at least two people in or buying in. */
+export function canStartGame(poll: GamePoll): boolean {
+  return votesAnswering(poll, 'in').length + votesAnswering(poll, 'buyin').length >= 2;
+}
+
 /** Whoever posted the poll and the group's admins: they can delete it. */
 export function canManagePoll(poll: GamePoll, groups: PlayerGroup[], uid: string) {
   return poll.createdBy?.uid === uid || groups.find((g) => g.id === poll.groupId)?.admins?.[uid] === true;
@@ -54,22 +59,23 @@ export async function createPoll(groupId: string, title: string, startsAt: numbe
   void notifyEvent({ event: 'poll', groupId, pollId: id });
 }
 
-/** Your own answer (`key`: your uid; the rules refuse answers for anyone else). */
-export function answerPoll(poll: GamePoll, key: string, name: string, answer: PollAnswer) {
-  return set(ref(db, `groupPolls/${poll.groupId}/${poll.id}/votes/${key}`), { answer, name, at: Date.now() });
+/** Your own answer (`key`: your uid; the rules refuse answers for anyone else). Once saved, the poll's poster
+ *  hears about it. */
+export async function answerPoll(poll: GamePoll, key: string, name: string, answer: PollAnswer) {
+  await set(ref(db, `groupPolls/${poll.groupId}/${poll.id}/votes/${key}`), { answer, name, at: Date.now() });
+  void notifyEvent({ event: 'vote', groupId: poll.groupId, pollId: poll.id });
 }
 
 export function deletePoll(poll: GamePoll) {
   return set(ref(db, `groupPolls/${poll.groupId}/${poll.id}`), null);
 }
 
-/** The new game and the poll's link to it, in one write; then everyone in or buying in is told. */
+/** The new game and the poll's link to it, in one write. Players are told once the admin starts the tournament. */
 export async function startGameFromPoll(poll: GamePoll, room: RoomState) {
   await update(ref(db), {
     [`rooms/${room.roomId}`]: room,
     [`groupPolls/${poll.groupId}/${poll.id}/roomId`]: room.roomId,
   });
-  void notifyEvent({ event: 'game', groupId: poll.groupId, pollId: poll.id, roomId: room.roomId });
 }
 
 const SITE = 'https://poker-tracker-2ab9c.web.app';

@@ -113,6 +113,8 @@ export function eventText(type: RoomEventType, actor: string, meta?: Record<stri
       return `${actor} paused the clock${meta?.level ? ` at ${meta.level}` : ''}.`;
     case 'level_changed':
       return `${actor} moved the clock to ${meta?.level}.`;
+    case 'time_added':
+      return `${actor} added a minute${meta?.level ? ` to ${meta.level}` : ''}.`;
     case 'blinds_updated':
       return `${actor} updated the blind structure.`;
     case 'buyins_closed':

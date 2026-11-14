@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Shield, UserPlus, Users, X } from 'lucide-react';
 import type { PlayerGroup, UserIdentity, UserProfile } from '../types/app';
 import {
+  MAX_GROUP_ABOUT,
   MAX_GROUP_NAME,
   addGroupMembers,
   createGroup,
@@ -12,12 +13,16 @@ import {
   removeGroupMember,
   renameGroup,
   renameGroupMember,
+  setGroupAbout,
+  setGroupPhoto,
   setGroupAdmin,
 } from '../utils/groups';
 import { normalizeName, sameName } from '../utils/format';
 import { createPoll } from '../utils/polls';
 import { useAvatars } from '../hooks/useAvatars';
-import { avatarColor, findAccounts } from '../utils/profile';
+import { avatarColor, findAccounts, squarePhoto } from '../utils/profile';
+import GroupPhoto, { groupInitials, useGroupPhoto } from './GroupPhoto';
+import FullScreenPhoto from './FullScreenPhoto';
 import MemberProfileSheet from './MemberProfileSheet';
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -83,6 +88,7 @@ export default function GroupsPage({ identity, registeredUsers, groups, onNotice
           <div className="stack-list">
             {groups.map((g) => (
               <button className="history-row" key={g.id} onClick={() => setOpenId(g.id)}>
+                <GroupPhoto group={g} />
                 <div className="history-main">
                   <div className="player-name">{g.name}</div>
                   <div className="tiny muted">
@@ -146,6 +152,16 @@ function GroupDetail({
   const [pollDate, setPollDate] = useState(nextEveningDate);
   const [pollTime, setPollTime] = useState('20:00');
   const [renaming, setRenaming] = useState(false);
+  const [aboutDraft, setAboutDraft] = useState<string | null>(null);
+  const groupPhoto = useGroupPhoto(group);
+  const [showsGroupPhoto, setShowsGroupPhoto] = useState(false);
+  const photoInput = useRef<HTMLInputElement>(null);
+
+  // Any member can add, change or remove the group's picture.
+  async function pickGroupPhoto(file: File | undefined) {
+    if (!file) return;
+    await run(async () => setGroupPhoto(group.id, await squarePhoto(file)), 'Group photo saved.');
+  }
   const [title, setTitle] = useState(group.name);
 
   const amAdmin = isGroupAdmin(group, identity.uid);
@@ -228,6 +244,30 @@ function GroupDetail({
         <ChevronLeft size={16} /> All groups
       </button>
 
+      <section className="card profile-card">
+        <div
+          className={`profile-avatar${groupPhoto ? ' tappable' : ''}`}
+          style={{ background: avatarColor(group.id) }}
+          onClick={() => groupPhoto && setShowsGroupPhoto(true)}
+        >
+          {groupPhoto ? <img src={groupPhoto} alt="" /> : <span>{groupInitials(group.name)}</span>}
+        </div>
+        {showsGroupPhoto && groupPhoto && (
+          <FullScreenPhoto photo={groupPhoto} name={group.name} onClose={() => setShowsGroupPhoto(false)} />
+        )}
+        <input ref={photoInput} type="file" accept="image/*" hidden onChange={(e) => void pickGroupPhoto(e.target.files?.[0])} />
+        <div className="input-row" style={{ justifyContent: 'center' }}>
+          <button className="link-btn" style={{ marginLeft: 0 }} onClick={() => photoInput.current?.click()}>
+            {groupPhoto ? 'Change photo' : 'Add group photo'}
+          </button>
+          {groupPhoto && (
+            <button className="link-btn" onClick={() => void run(() => setGroupPhoto(group.id, null), 'Group photo removed.')}>
+              Remove photo
+            </button>
+          )}
+        </div>
+      </section>
+
       <section className="card">
         <div className="section-title">Group</div>
         {renaming ? (
@@ -261,6 +301,52 @@ function GroupDetail({
           </div>
         )}
         <div className="tiny muted">Created by {group.createdBy?.displayName ?? 'someone'}</div>
+      </section>
+
+      <section className="card">
+        <div className="section-head">
+          <div className="section-title">About</div>
+          {aboutDraft === null && (
+            <button className="link-btn" onClick={() => setAboutDraft(group.about?.text ?? '')}>
+              {group.about ? 'Edit' : 'Add house rules'}
+            </button>
+          )}
+        </div>
+        {aboutDraft !== null ? (
+          <form
+            className="stack-list"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void run(() => setGroupAbout(group.id, aboutDraft, identity), 'About saved.').then(() => setAboutDraft(null));
+            }}
+          >
+            <textarea
+              value={aboutDraft}
+              onChange={(e) => setAboutDraft(e.target.value)}
+              placeholder="Buy-ins, blinds, rebuys, food…"
+              maxLength={MAX_GROUP_ABOUT}
+              rows={6}
+              autoFocus
+            />
+            <div className="input-row">
+              <button type="button" className="btn btn-ghost" onClick={() => setAboutDraft(null)}>
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-green" disabled={busy}>
+                Save
+              </button>
+            </div>
+          </form>
+        ) : group.about ? (
+          <>
+            <div className="group-about">{group.about.text}</div>
+            <div className="tiny muted">
+              Edited by {group.about.editedBy.displayName} · {new Date(group.about.editedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+            </div>
+          </>
+        ) : (
+          <div className="tiny muted">No house rules yet. Anyone in the group can add them.</div>
+        )}
       </section>
 
       <section className="card">

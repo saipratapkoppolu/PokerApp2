@@ -9,6 +9,9 @@
         ".read": "auth != null",
         ".write": "auth != null && auth.uid === $uid",
         ".validate": "!newData.hasChild('email')",
+        "displayNameKey": {
+          ".validate": "newData.isString() && (data.val() === newData.val() || !newData.parent().parent().parent().child('usernames').child(newData.val().replace('%', '%25').replace('.', '%2E').replace('#', '%23').replace('$', '%24').replace('[', '%5B').replace(']', '%5D').replace('/', '%2F')).exists() || newData.parent().parent().parent().child('usernames').child(newData.val().replace('%', '%25').replace('.', '%2E').replace('#', '%23').replace('$', '%24').replace('[', '%5B').replace(']', '%5D').replace('/', '%2F')).val() === $uid)"
+        },
         "status": {
           ".validate": "newData.isString() && newData.val().length <= 80"
         }
@@ -63,6 +66,14 @@
         "name": {
           ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 40"
         },
+        "photoUpdatedAt": {
+          ".write": "auth != null && auth.provider != 'anonymous' && root.child('groups').child($groupId).child('members').child(auth.uid).child('uid').val() === auth.uid",
+          ".validate": "newData.isNumber()"
+        },
+        "about": {
+          ".write": "auth != null && auth.provider != 'anonymous' && root.child('groups').child($groupId).child('members').child(auth.uid).child('uid').val() === auth.uid",
+          ".validate": "newData.hasChildren(['text', 'editedBy', 'editedAt']) && newData.child('text').isString() && newData.child('text').val().length <= 2000 && newData.child('editedBy').child('uid').val() === auth.uid && newData.child('editedBy').child('displayName').isString() && newData.child('editedBy').child('displayName').val().length <= 40 && newData.child('editedAt').isNumber()"
+        },
         "members": {
           "$memberId": {
             ".write": "auth != null && auth.uid === $memberId && !newData.exists()",
@@ -113,6 +124,30 @@
             }
           }
         }
+      }
+    },
+    "liveActivityTokens": {
+      "$roomId": {
+        "$uid": {
+          ".write": "auth != null && auth.uid === $uid",
+          "$key": {
+            ".validate": "newData.hasChildren(['token', 'fcm', 'at']) && newData.child('token').isString() && newData.child('token').val().length <= 400 && newData.child('fcm').isString() && newData.child('fcm').val().length <= 400 && newData.child('at').isNumber()"
+          }
+        }
+      }
+    },
+    "groupPhotos": {
+      "$groupId": {
+        ".read": "auth != null && root.child('groups').child($groupId).child('members').child(auth.uid).child('uid').val() === auth.uid",
+        ".write": "auth != null && auth.provider != 'anonymous' && root.child('groups').child($groupId).child('members').child(auth.uid).child('uid').val() === auth.uid",
+        ".validate": "newData.isString() && newData.val().beginsWith('data:image/') && newData.val().length <= 150000"
+      }
+    },
+    "usernames": {
+      "$key": {
+        ".read": true,
+        ".write": "auth != null && auth.provider != 'anonymous' && ((!data.exists() && newData.val() === auth.uid) || (data.val() === auth.uid && !newData.exists()))",
+        ".validate": "newData.isString()"
       }
     },
     "avatars": {

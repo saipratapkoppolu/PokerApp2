@@ -18,5 +18,14 @@ GROUP_ID = "66133405"
 
 # Poll reminders ("starts in an hour"), see src/push.js; daily at 03:30 UTC, old games out and lost history rows
 # back, see src/games.js (DAILY in src/index.js must match).
+# Blinds-up alerts: one alarm per game, at each level end (src/clock.js).
+[[durable_objects.bindings]]
+name = "CLOCKS"
+class_name = "RoomClock"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RoomClock"]
+
 [triggers]
 crons = ["*/15 * * * *", "30 3 * * *"]

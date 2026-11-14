@@ -4,7 +4,18 @@ import { get, ref } from 'firebase/database';
 import { db } from '../firebase';
 import type { UserIdentity } from '../types/app';
 import { normalizeName } from '../utils/format';
-import { MAX_STATUS, MIN_NAME, avatarColor, loadPhoto, profileStatus, savePhoto, saveProfile, squarePhoto } from '../utils/profile';
+import FullScreenPhoto from './FullScreenPhoto';
+import {
+  MAX_STATUS,
+  MIN_NAME,
+  NameTakenError,
+  avatarColor,
+  loadPhoto,
+  profileStatus,
+  savePhoto,
+  saveProfile,
+  squarePhoto,
+} from '../utils/profile';
 
 type Props = {
   identity: UserIdentity;
@@ -17,6 +28,7 @@ type Props = {
 /** Your profile: picture, display name (how you appear everywhere) and status. */
 export default function ProfilePage({ identity, onSaved, onBack, onLogOut, onNotice }: Props) {
   const [name, setName] = useState(identity.displayName);
+  const [showsPhoto, setShowsPhoto] = useState(false);
   const [status, setStatus] = useState('');
   const [saved, setSaved] = useState({ name: identity.displayName, status: '' });
   const [photo, setPhoto] = useState<string | null>(null);
@@ -51,6 +63,7 @@ export default function ProfilePage({ identity, onSaved, onBack, onLogOut, onNot
       onSaved(savedName);
       onNotice('Profile saved.');
     } catch (error) {
+      if (error instanceof NameTakenError) return onNotice(error.message);
       console.error('profile save failed', error);
       onNotice('Couldn’t save your profile. Try again.');
     } finally {
@@ -75,7 +88,14 @@ export default function ProfilePage({ identity, onSaved, onBack, onLogOut, onNot
         <ChevronLeft size={16} /> Settings
       </button>
       <section className="card profile-card">
-        <div className="profile-avatar" style={{ background: avatarColor(identity.uid) }}>{photo ? <img src={photo} alt="" /> : <span>{initials}</span>}</div>
+        <div
+          className={`profile-avatar${photo ? ' tappable' : ''}`}
+          style={{ background: avatarColor(identity.uid) }}
+          onClick={() => photo && setShowsPhoto(true)}
+        >
+          {photo ? <img src={photo} alt="" /> : <span>{initials}</span>}
+        </div>
+        {showsPhoto && photo && <FullScreenPhoto photo={photo} name={name} onClose={() => setShowsPhoto(false)} />}
         <input ref={fileInput} type="file" accept="image/*" hidden onChange={(e) => void pick(e.target.files?.[0])} />
         <div className="input-row" style={{ justifyContent: 'center' }}>
           <button className="link-btn" style={{ marginLeft: 0 }} onClick={() => fileInput.current?.click()}>
