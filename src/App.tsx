@@ -812,7 +812,8 @@ export default function App() {
     setAuthMessage('');
     try {
       await sendPasswordResetEmail(auth, email);
-      setAuthMessage('Password reset email sent.');
+      // The project protects against email enumeration: Firebase says "sent" whether or not the address has an account.
+      setAuthMessage(`If ${email} has an account, a reset link is on its way. Check your spam folder too. Nothing after a few minutes? Check the address is the one you sign in with.`);
     } catch (error: any) {
       setAuthMessage(error?.message ?? 'Could not send reset email.');
     } finally {
